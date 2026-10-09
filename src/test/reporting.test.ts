@@ -18,14 +18,14 @@ describe('explicit reporting-date aging', () => {
   expect(classifyAging({ ...row, due_date: dueAtOffset(days) }, asOfDate)).toEqual({ daysOverdue: Math.max(0, days), overdue: days > 0, bucket: agingBuckets[index] });
  });
  it('uses calendar days regardless of local timezone or DST', () => {
-  const prior = process.env.TZ;
+  const prior = process.env['TZ'];
   try {
    for (const timezone of ['UTC', 'Asia/Kolkata', 'America/Los_Angeles']) {
-    process.env.TZ = timezone;
+    process.env['TZ'] = timezone;
     expect(classifyAging({ ...row, due_date: '2026-03-08' }, '2026-03-09').daysOverdue).toBe(1);
    }
   } finally {
-   if (prior === undefined) delete process.env.TZ; else process.env.TZ = prior;
+   if (prior === undefined) delete process.env['TZ']; else process.env['TZ'] = prior;
   }
  });
  it('rejects invalid dates instead of silently treating them as current', () => {
