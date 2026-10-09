@@ -33,7 +33,7 @@ export const demoInputSchema = z.object({ documentId: z.number().int().positive(
 export type DemoInput = z.infer<typeof demoInputSchema>;
 export type DemoReview = { scenario: Scenario; input: DemoInput; fingerprint: string; supported: boolean; before: DemoSnapshot; after: DemoSnapshot | null; message: string };
 export type DemoResult = { status: 'success' | 'blocked' | 'unsupported' | 'denied' | 'duplicate' | 'stale'; message: string; snapshot: DemoSnapshot };
-export const scenarioById = (id: ScenarioId) => scenarios.find(item => item.id === id) ?? scenarios[0] as Scenario;
+export function scenarioById(id: ScenarioId): Scenario { const scenario = scenarios.find(item => item.id === id); if (!scenario) throw new Error('Unknown demo scenario'); return scenario; }
 export function readDemoSnapshot(): DemoSnapshot { return structuredClone(baselineSnapshot); }
 export const demoQueryKey = (fy: string, scenario: ScenarioId) => ['collectflow', 'demo', fy, scenario] as const;
 export function reviewDemo(id: ScenarioId, raw: unknown, role: Role, fy: string): DemoReview {
@@ -55,7 +55,7 @@ export function createDemoAdapter() {
   reset: () => consumed.clear(),
   async confirm(review: DemoReview, role: Role, fy: string, selected: ScenarioId): Promise<DemoResult> {
    const unchanged = readDemoSnapshot();
-   if (!permits(role, review.scenario.action)) return { status: 'denied', message: 'Permission changed. No changes applied.', snapshot: unchanged };
+   if (!permits(role, scenarioById(selected).action)) return { status: 'denied', message: 'Permission changed. No changes applied.', snapshot: unchanged };
    if (selected !== review.scenario.id || !unchanged.invoices.some(row => row.id === review.input.documentId && row.fy_code === fy)) return { status: 'stale', message: 'Scenario or financial year changed. Review again.', snapshot: unchanged };
    // Validate again at the adapter boundary; never trust a UI-supplied result snapshot.
    const verified = reviewDemo(selected, review.input, role, fy);

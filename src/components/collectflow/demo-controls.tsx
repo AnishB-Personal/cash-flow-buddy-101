@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -39,9 +39,11 @@ function DemoSequence({ close }: { close: () => void }) {
  const [discard,setDiscard] = useState(false);
  const submitting = useRef(false);
  const form = useForm<DemoInput>({resolver:zodResolver(demoInputSchema),defaultValues:{documentId:selected.documentId,remarks:selected.remarks,asOfDate:'2026-04-30'}});
+ const dirty = form.formState.isDirty;
  const allowed = permits(role,selected.action) && scenario!=='baseline';
  const records = data.invoices.filter(row=>row.fy_code===fy);
- function requestClose() {if(form.formState.isDirty&&step!=='result') setDiscard(true);else close();}
+ function requestClose() {if(dirty&&step!=='result') setDiscard(true);else close();}
+ useEffect(()=>{function escape(event: KeyboardEvent){if(event.key==='Escape'&&!pending){event.preventDefault();requestClose();}}document.addEventListener('keydown',escape);return()=>document.removeEventListener('keydown',escape);});
  function prepare(input: DemoInput) { try {setReview(reviewDemo(scenario,input,role,fy));setError(null);setStep('review');} catch(error) {setError(error instanceof Error?error.message:'Review unavailable.');} }
  async function submit() {
   if(!review||submitting.current) return;
@@ -62,8 +64,9 @@ export function DemoControls({ container }: { container?: HTMLElement | null | u
  const [open,setOpen] = useState(false);
  const [view,setView] = useState<'rehearsal'|'contracts'>('rehearsal');
  const [reset,setReset] = useState(false);
- return <><section className="cf-demo-bar" aria-label="Demo controls"><div><strong>Demo Mode — No actual financial records are modified</strong><small>{scenarioById(scenario).label} · {agingAsOf()}</small></div><div className="cf-demo-bar-actions"><label className="sr-only" htmlFor="demo-scenario">Demo scenario</label><select id="demo-scenario" aria-label="Demo scenario" value={scenario} onChange={event=>selectScenario(event.target.value as ScenarioId)}>{scenarios.map(item=><option value={item.id} key={item.id}>{item.label}</option>)}</select><Button variant="outline" onClick={()=>{setView('rehearsal');setOpen(true);}}><ClipboardCheck size={16}/>Review scenario</Button><Button variant="ghost" onClick={()=>{setView('contracts');setOpen(true);}}>Contracts & gaps</Button><Button variant="ghost" title="Reset Demo" onClick={()=>setReset(true)}><RotateCcw size={16}/>Reset Demo</Button></div></section>
+ const trigger = useRef<HTMLButtonElement|null>(null);
+ return <><section className="cf-demo-bar" aria-label="Demo controls"><div><strong>Demo Mode — No actual financial records are modified</strong><small>{scenarioById(scenario).label} · {agingAsOf()}</small></div><div className="cf-demo-bar-actions"><label className="sr-only" htmlFor="demo-scenario">Demo scenario</label><select id="demo-scenario" aria-label="Demo scenario" value={scenario} onChange={event=>selectScenario(event.target.value as ScenarioId)}>{scenarios.map(item=><option value={item.id} key={item.id}>{item.label}</option>)}</select><Button variant="outline" onClick={event=>{trigger.current=event.currentTarget;setView('rehearsal');setOpen(true);}}><ClipboardCheck size={16}/>Review scenario</Button><Button variant="ghost" onClick={event=>{trigger.current=event.currentTarget;setView('contracts');setOpen(true);}}>Contracts & gaps</Button><Button variant="ghost" title="Reset Demo" onClick={()=>setReset(true)}><RotateCcw size={16}/>Reset Demo</Button></div></section>
  {reset&&<div className="cf-demo-reset" role="alert"><span>Restore the approved baseline, original totals and 30 April 2026 reporting date?</span><Button variant="outline" onClick={()=>setReset(false)}>Keep scenario</Button><Button onClick={()=>{resetDemo();setReset(false);}}>Restore baseline</Button></div>}
- <Dialog.Root open={open} onOpenChange={value=>{if(value)setOpen(true);}}><Dialog.Portal container={container}><Dialog.Overlay className="cf-overlay"/><Dialog.Content className="cf-app cf-drawer cf-demo-drawer" onEscapeKeyDown={event=>{if(view==='rehearsal')event.preventDefault();else setOpen(false);}} onInteractOutside={event=>event.preventDefault()}><header className="cf-drawer-header"><div><Dialog.Title>{view==='contracts'?'Contracts & scenario catalogue':'Demo rehearsal'}</Dialog.Title><Dialog.Description>Stage 0 · isolated mock workspace</Dialog.Description></div>{view==='contracts'&&<Button variant="ghost" size="icon" aria-label="Close contract register" onClick={()=>setOpen(false)}><X/></Button>}</header><div className="cf-drawer-body">{view==='contracts'?<ContractRegister/>:<DemoSequence key={scenario} close={()=>setOpen(false)}/>}</div></Dialog.Content></Dialog.Portal></Dialog.Root>
+ <Dialog.Root open={open} onOpenChange={value=>{if(value)setOpen(true);}}><Dialog.Portal container={container}><Dialog.Overlay className="cf-overlay"/><Dialog.Content className="cf-app cf-drawer cf-demo-drawer" onCloseAutoFocus={event=>{event.preventDefault();trigger.current?.focus();}} onEscapeKeyDown={event=>{if(view==='rehearsal')event.preventDefault();else setOpen(false);}} onInteractOutside={event=>event.preventDefault()}><header className="cf-drawer-header"><div><Dialog.Title>{view==='contracts'?'Contracts & scenario catalogue':'Demo rehearsal'}</Dialog.Title><Dialog.Description>Stage 0 · isolated mock workspace</Dialog.Description></div>{view==='contracts'&&<Button variant="ghost" size="icon" aria-label="Close contract register" onClick={()=>setOpen(false)}><X/></Button>}</header><div className="cf-drawer-body">{view==='contracts'?<ContractRegister/>:<DemoSequence key={scenario} close={()=>setOpen(false)}/>}</div></Dialog.Content></Dialog.Portal></Dialog.Root>
  </>;
 }
