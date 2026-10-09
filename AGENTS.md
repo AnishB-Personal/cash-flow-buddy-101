@@ -17,4 +17,6 @@
 - Keep implemented financial screens in distinct TanStack content routes and deferred modules explicitly identified; this preserves navigable integration boundaries without pretending unfinished workflows are complete.
 - Use an explicit optional portal container for embedded preview overlays; mobile drawers must scroll inside their own viewport instead of inheriting desktop positioning.
 - Match mock role visibility to verified FastAPI permissions; sales may read all records but only finance/admin may edit, convert, cancel or record payments.
-- Keep mock role and fiscal-year state in a shared in-memory provider across financial routes; navigation must not silently restore permissions or reset financial context, and no new authentication or persistence is introduced.
+- Keep mock role, fiscal-year and isolated scenario snapshots in a shared in-memory provider across financial routes; navigation preserves context, reset restores the immutable baseline, and the comparison always reads baseline fixtures.
+- Validate demo inputs at form and adapter boundaries and recheck action-specific permissions on confirmation; adapters return whole verified snapshots, never financial outcomes calculated from user input.
+- Stage 0 rehearsals use verified metadata-only snapshots and guarded/review-only cases; financial mutation scenarios stay disabled until their own approved stage supplies verified literal results.
