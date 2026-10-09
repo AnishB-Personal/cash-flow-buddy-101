@@ -30,7 +30,8 @@ const verifiedSnapshots = freeze({ 'order-note': orderSnapshot, 'invoice-note': 
 const calendarDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a calendar date').refine(value => { const parsed = new Date(`${value}T00:00:00Z`); return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value; }, 'Invalid calendar date');
 export const moneyInputSchema = z.number().finite().nonnegative().refine(value => Math.abs(value * 100 - Math.round(value * 100)) < 0.000001, 'Use at most two decimal places');
 export const demoInputSchema = z.object({ documentId: z.number().int().positive(), remarks: z.string().trim().min(1, 'Enter remarks').max(500, 'Use at most 500 characters'), asOfDate: calendarDate.refine(value => value === '2026-04-30', 'Reporting date is fixed at 30 April 2026') }).strict();
-export type DemoInput = z.infer<typeof demoInputSchema>;
+export type DemoFormInput = z.input<typeof demoInputSchema>;
+export type DemoInput = z.output<typeof demoInputSchema>;
 export type DemoReview = { scenario: Scenario; input: DemoInput; fingerprint: string; supported: boolean; before: DemoSnapshot; after: DemoSnapshot | null; message: string };
 export type DemoResult = { status: 'success' | 'blocked' | 'unsupported' | 'denied' | 'duplicate' | 'stale'; message: string; snapshot: DemoSnapshot };
 export function scenarioById(id: ScenarioId): Scenario { const scenario = scenarios.find(item => item.id === id); if (!scenario) throw new Error('Unknown demo scenario'); return scenario; }

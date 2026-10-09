@@ -10,7 +10,7 @@ import { data, money, type Invoice } from '@/data/collectflow';
 import { agingAsOf } from '@/data/records';
 import { permits } from '@/data/demo-policy';
 import { contracts, contractGaps } from '@/data/demo-contracts';
-import { scenarios, scenarioById, demoInputSchema, reviewDemo, type DemoInput, type DemoReview, type DemoResult, type ScenarioId } from '@/data/demo';
+import { scenarios, scenarioById, demoInputSchema, reviewDemo, type DemoInput, type DemoFormInput, type DemoReview, type DemoResult, type ScenarioId } from '@/data/demo';
 import { useMockSession } from './session';
 
 export function FormSection({ title, children }: { title: string; children: ReactNode }) { return <section className="cf-form-section"><h3>{title}</h3>{children}</section>; }
@@ -38,7 +38,7 @@ function DemoSequence({ close }: { close: () => void }) {
  const [pending,setPending] = useState(false);
  const [discard,setDiscard] = useState(false);
  const submitting = useRef(false);
- const form = useForm<DemoInput>({resolver:zodResolver(demoInputSchema),defaultValues:{documentId:selected.documentId,remarks:selected.remarks,asOfDate:'2026-04-30'}});
+ const form = useForm<DemoFormInput, unknown, DemoInput>({resolver:zodResolver(demoInputSchema),defaultValues:{documentId:selected.documentId,remarks:selected.remarks,asOfDate:'2026-04-30'}});
  const dirty = form.formState.isDirty;
  const allowed = permits(role,selected.action) && scenario!=='baseline';
  const records = data.invoices.filter(row=>row.fy_code===fy);
