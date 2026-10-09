@@ -1,5 +1,5 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FinancialDashboard } from '@/components/collectflow/dashboard';
 import { RecordList } from '@/components/collectflow/record-list';
 import { RecordDrawer } from '@/components/collectflow/record-drawer';
@@ -7,7 +7,8 @@ import { data, asOfDate } from '@/data/collectflow';
 import { agingAsOf, overdueLabel } from '@/data/records';
 import { classifyAging } from '@/data/reporting';
 
-afterEach(cleanup);
+beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const listProps = { fy: 'FY 2026-27', role: 'finance' as const, clearBucket: vi.fn(), open: vi.fn(), unavailable: vi.fn() };
 describe('aging reporting context across approved views', () => {
  it('shows the same reporting date in dashboard and populated or empty aging results', () => {
