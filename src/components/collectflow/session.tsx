@@ -13,7 +13,7 @@ export function MockSessionProvider({ children }: { children: ReactNode }) {
  const [references,setReferences]=useState(readReferences);
  const referenceAdapter=useRef(createReferenceAdapter());
  const current = useRef({role,fy,scenario,revision,references}); current.current = {role,fy,scenario,revision,references};
- function selectScenario(value: ScenarioId) { adapter.current.reset();referenceAdapter.current.reset();setReferences(readReferences());setScenario(value);setDemo(readDemoSnapshot());setRevision(value=>value+1); }
+ function selectScenario(value: ScenarioId) { adapter.current.reset();referenceAdapter.current.reset();const restored=readReferences();current.current={...current.current,scenario:value,references:restored,revision:current.current.revision+1};setReferences(restored);setScenario(value);setDemo(readDemoSnapshot());setRevision(value=>value+1);if(!restored.years.some(year=>year.code===fy))setFy('FY 2026-27'); }
  function resetDemo() { selectScenario('baseline');setFy('FY 2026-27'); }
  async function confirmDemo(review: DemoReview) {
   const context = current.current;

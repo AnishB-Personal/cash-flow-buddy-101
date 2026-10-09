@@ -28,7 +28,8 @@ const percent = required(20).refine(v=>/^\d+(\.\d{1,3})?$/.test(v) && Number.isF
 export const gstSchema = z.object({name:required(200),percent,tax_type:z.enum(['GST','EXEMPT']),is_default:z.enum(['0','1'])}).strict();
 export const tdsSchema = z.object({section_code:required(100),description:text(500),percent}).strict();
 const emptySchema = z.object({}).strict();
-export function referenceSchema(action: ReferenceAction) { switch(action) {case 'customer-create':case 'customer-edit':return customerSchema;case 'fy-create':return fySchema;case 'gst-create':return gstSchema;case 'tds-create':return tdsSchema;default:return emptySchema;} }
+const actionSchema = z.enum(['customer-create','customer-edit','customer-delete','fy-create','fy-seed','fy-delete','gst-create','gst-deactivate','tds-create','tds-deactivate']);
+export function referenceSchema(action: ReferenceAction) { actionSchema.parse(action);switch(action) {case 'customer-create':case 'customer-edit':return customerSchema;case 'fy-create':return fySchema;case 'gst-create':return gstSchema;case 'tds-create':return tdsSchema;default:return emptySchema;} }
 export const customerExample: ReferenceInput = {billing_name:'Demo Reference Services Pvt Ltd',billing_address:'Demo office, Bengaluru',city:'Bengaluru',state:'Karnataka',country:'IN',pin_code:'560001',gst_number:'29ABCDE1234F1Z5',phone_1:'+91 9000000000',phone_2:'',contact_person:'Demo Contact',designation:'Accounts',email:'accounts@demo-reference.example.com'};
 export const fyExample: ReferenceInput = {code:'FY 2027-28',start_date:'2027-04-01',end_date:'2028-03-31'};
 export const gstExample: ReferenceInput = {name:'Demo GST 3%',percent:'3',tax_type:'GST',is_default:'0'};
@@ -48,8 +49,12 @@ export function referencePayload(action: ReferenceAction, raw: unknown): Custome
  if(action==='tds-create') {const v=tdsSchema.parse(parsed);return {section_code:v.section_code,description:v.description,rate:Number(v.percent)/100};}
  return parsed;
 }
-const same = (a: unknown,b: unknown) => JSON.stringify(a)===JSON.stringify(b);
+const same = (a: ReferenceInput,b: ReferenceInput | null) => b!==null && Object.keys(a).length===Object.keys(b).length && Object.keys(a).every(key=>a[key]===b[key]);
 export function reviewReference(action: ReferenceAction, target: string, raw: unknown, role: Role, refs: References): ReferenceReview {
+ actionSchema.parse(action);
+ if(action.endsWith('-delete')||action.endsWith('-deactivate')||action==='customer-edit') {
+  if(action==='fy-delete') required(40).parse(target);else z.string().regex(/^[1-9]\d{0,9}$/, 'Invalid record reference').parse(target);
+ }else z.literal('').parse(target);
  if(!referencePermitted(role,action)) throw new Error('This role cannot perform this action.');
  const input = referenceSchema(action).parse(raw) as ReferenceInput;
  const before = structuredClone(refs), after = structuredClone(refs);
