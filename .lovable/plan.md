@@ -1,98 +1,133 @@
-# CollectFlow Phase 3 — Complete frontend workflows
+# CollectFlow Phase 3 — Complete frontend implementation
 
-## Goal and non-negotiables
-Complete the remaining frontend using the approved Design B shell, typography, tokens, tables/cards and contained drawers—not a redesign. Preserve Dashboard, Orders, Invoices, search/filtering and six-bucket aging behavior; keep `/design-comparison` separate. Use sanitized data only. No production connection, publication, original-repository changes, new database/authentication or replacement financial engine.
+## Outcome and boundaries
+Complete remaining user workflows without redesigning the approved Design B Dashboard, Orders, Invoices, searches, filters or contained drawers. Preserve `/design-comparison` separately. No original-repository changes, production connection, publication, new database/authentication or replacement financial engine.
 
-**Demo Mode — No actual financial records are modified.** Financial workflows follow **form → validation → review of financial details/intended changes → confirmation/submission → predefined verified result**. Success is available only for supported scenarios; other valid inputs can reach review but never produce fabricated transactions. Provide **Reset Demo** to restore the approved dataset and totals. Keep baseline and scenario data isolated; use in-memory state only.
+**Demo Mode — No actual financial records are modified.** Every financial workflow follows **form → validation → review of financial details/intended changes → confirmation/submission → verified predefined result**. Success requires a supported scenario; other valid inputs reach review without fabricated success. Provide **Reset Demo**; keep immutable baseline and in-memory scenarios separate. Supported scenarios cover order creation/editing, conversion, partial/full payments, cash/TDS settlements, cancellation and payment corrections.
 
-## Verified references and contract gaps
-Reviewed the original handover/OpenAPI and current `app/routers/{customers,invoices,payments,users,settings,export}.py`, plus the existing frontend and tests. Source behavior informs adapters; FastAPI remains authoritative. These issues must be documented before dependent work:
+## Verified contracts and unresolved behavior
+Reviewed original handover/OpenAPI, router implementations and current frontend. FastAPI remains authoritative. Before dependent implementation, approve a discrepancy register covering:
 
-1. **Permissions conflict:** handover permits sales draft edits/admin-only targets; source restricts invoice updates to finance/admin and permits finance/admin target reads/writes. User-directory GET is authenticated rather than admin-only. Use action-specific, conservative UI permissions; keep administration admin-only, sales creation/read but no edits, target management finance/admin. Verify viewer/create permission discrepancies before widening any access; do not infer authority from an endpoint merely accepting authentication.
-2. **Line-item editing is limited:** create accepts quantity/price/tax/items, but update accepts descriptions and item IDs only. No quantity/price/tax editing or adding/removing persisted items. Source updates descriptions even on issued records despite an immutability comment. Support documented-safe unbilled description edits; keep issued item/financial edits locked pending clarification. Issued remarks/due date/executive edits are implemented; commercial identity and amounts remain locked. `invoice_number`/`invoice_date` appear in update schema but are not used for issuance: conversion is the dedicated workflow.
-3. **Payment correction is delete/re-record**, not PUT/edit or credit-note adjustment. Two independent requests are not atomic; represent reversal success followed by replacement failure honestly. Source duplicate matching is invoice + remittance + cash amount, not a five-minute window. Idempotent replay is separately supported.
-4. **History/report limits:** recent payments GET is capped at 100 and has no full-ledger pagination/filter API. Customer detail returns invoice summaries; invoice detail supplies payment history. Secure export currently produces one **Invoices & Collections** worksheet, not a separate Payments Ledger report despite handover wording. Do not invent endpoints or claim complete historical coverage.
-5. **Fixture mismatches:** customer lifetime totals/counts exceed the supplied two-record history; customer source aggregates include unbilled amounts. Executive “outstanding” also includes unbilled value, and one executive target lacks a target-detail fixture. Map fields explicitly, label order value versus issued receivables, and show unavailable history rather than inventing historical transactions. Do not silently change backend meanings to make mocks match.
-6. **Settings/account limits:** FY supports list/create/seed/delete, GST/TDS list/create/deactivate, not general edit/reactivate. Account administration supports create/name/role/delete/reset-password, not disable/invite/email delivery. Do not add unsupported operations.
-7. **Exports/date contract:** ticket source expiry is 300 seconds versus 60 in some docs. Backend aging uses its clock, while mocks use **30 Apr 2026**. Preserve explicit mock reporting labels and record future integration requirements for a consistent server reporting date; do not change backend now.
+- **Permissions:** documentation/source disagree on sales draft edits and target administration. Source restricts edits/conversion/payments to finance/admin; target GET/POST also allows finance/admin. Users GET is authenticated, not admin-only. Use action-specific permissions, admin-only account administration and conservative access; verify viewer/create discrepancies before widening access.
+- **Item editing:** create supports full items, but update accepts descriptions/IDs only—not quantities/prices/tax or item insertion/deletion. Source permits issued description updates despite immutability commentary. Keep issued items locked pending clarification; support safe unbilled description edits. Issued remarks/due date/executive changes exist; commercial identity/amounts remain locked. Update invoice-number/date fields do not implement issuance; use conversion.
+- **Corrections:** payment correction is DELETE then POST, not an atomic edit. Demonstrate reversal success/replacement failure honestly. Duplicate detection matches invoice/remittance/cash amount; idempotency is separate, not a five-minute duplicate window.
+- **Coverage:** recent-payment GET is capped at 100 without full-ledger pagination. Customer detail provides invoice summaries; invoice detail supplies payment history. Export currently contains one Invoices & Collections worksheet, despite documentation mentioning Payments Ledger. Do not invent endpoints or imply complete history.
+- **Fixtures:** customer lifetime amounts/counts exceed supplied history; source customer aggregates and executive “outstanding” include unbilled value. One executive target lacks detail data. Map and label order value versus issued receivables explicitly; no invented historical transactions or silent changes to backend meanings.
+- **Missing capabilities:** no persisted financial line-item editing, credit notes/refunds, partial cancellation, account disable/invite/email workflow, FY edit or GST/TDS edit/reactivate endpoints. Preserve these as explicitly unsupported where referenced, not nonfunctional controls.
+- **Export/date discrepancies:** source tickets expire after 300 seconds versus 60 in some docs. Backend aging uses its clock; mocks retain **Aging as of 30 Apr 2026**. Record a consistent server reporting-date requirement for later integration.
 
-Unresolved capabilities stay review-only or clearly unavailable. Stage 0 presents the discrepancy register and safe scope for approval; no blocker justifies replacing backend behavior.
-
-## Shared delivery and acceptance rules
-Each stage includes loading/empty/error/permission states, inline validation, recoverable submission errors, duplicate-submit protection, keyboard focus restoration, unsaved-change confirmation and contextual success navigation. Reuse selectors, controls, formatting, list/card patterns and overlay containment; extend with domain-specific forms rather than forcing customer/payment data into invoice-shaped components.
-
-**Every stage checkpoint:** demonstrate complete allowed workflows and denied actions at 1440/768/390/320px plus the embedded mobile preview. No page overflow, clipped amounts/actions or overlapping text. Desktop: readable right-aligned financial columns, sorting/search/filters/pagination where supported. Mobile: stacked cards/forms, scrollable contained sheets, visible footer actions, accessible labels and touch targets. Global search and screen search remain independent; role, FY and active demo context survive navigation. Approve each stage before starting the next.
-
-**Verification:** run relevant Vitest/Testing Library tests, then full regression suite at checkpoints; inspect harness-managed build/type results (do not duplicate manual builds/typechecks). Use real browser workflow checks, screenshots and runtime/network evidence; inspect downloaded mock XLSX contents. Report failures, warnings and unexecuted checks explicitly. No hosted-auth/security verification is claimed from mock UI tests.
+## Acceptance applying to every stage
+- Reuse approved tokens, formatting, selectors, list/card patterns and overlay containment. Add domain-specific forms rather than forcing customers/payments into invoice-shaped components.
+- Include loading/empty/error/denied states, field errors, submission/retry states, duplicate-submit protection, unsaved-change confirmation and keyboard focus restoration.
+- Verify 1440/768/390/320px and embedded mobile preview in the actual browser: no page overflow, clipped amounts/actions or overlapping text; desktop right-aligned readable amounts; mobile stacked cards/forms and internally scrolling sheets with accessible footer actions.
+- Preserve independent global/screen searches, contextual navigation and shared role/FY/demo state. Recheck permission at confirmation, not only button visibility.
+- Run stage Vitest/Testing Library tests and the full regression suite at checkpoints; inspect harness-managed build/type results without duplicating manual builds. Browser-check workflows, runtime/network errors and XLSX contents. Report failed, warning and unexecuted checks; mock tests do not verify hosted authentication/security.
+- **Approval gate after every stage:** demonstrate its completed workflows and evidence, then stop before the next stage.
 
 ## Stage 0 — Contract and demo foundation
-- **Screens/workflows:** retain approved workspace; add unobtrusive demo scenario selection/reset and review/confirmation/result states. Establish action permissions and integration readiness register.
-- **Reusable components:** form sections, field errors, searchable document/customer/executive selectors, confirmation/review panel, pending/result states; separate read/query and action adapters.
-- **API dependencies:** typed request/response mapping against handover OpenAPI and source; no requests to a live service. Record every source/document mismatch above.
-- **Mock requirements:** immutable baseline; independently verified before/after scenario snapshots and supported input fingerprints. Scenario records, payments, KPIs, customers, targets and reporting date must agree across screens. Initial approval totals remain ₹5,31,000 invoiced, ₹2,00,000 cash, ₹9,000 TDS, ₹2,09,000 settled, ₹3,22,000 receivables and ₹2,95,000 unbilled.
-- **Permissions/validation:** action-specific checks rather than general `canWrite`; validate schemas at forms and adapter entry, permissions again on confirmation, finite amounts/paise precision, dates and references. No secrets/passwords in logs or stored demo data.
-- **Tests/acceptance:** isolation, atomic snapshot switching, unsupported-input review without mutation, duplicate submission, reset, cross-route role/FY state and all existing aging/date regressions. Desktop/mobile review details must show every intended change before confirmation.
-- **Checkpoint:** approve contract register, scenario catalogue and foundation before module work.
+**Screens/workflows:** preserve workspace; add scenario selection, Reset Demo and reusable review/confirmation/result sequence. Present contract-gap register and supported scenario catalogue.
+
+**Components:** form sections/errors, searchable reference pickers, review panel, guarded confirmation, submission/result states, typed read/action adapters.
+
+**API dependencies:** map OpenAPI request/response types against source without calling a live service; record mismatches above.
+
+**Mocks:** immutable baseline and independent, complete before/after snapshots with supported-input fingerprints. Verify records, payments, summaries, targets and reporting date agree. Reset restores ₹5,31,000 invoiced, ₹2,00,000 cash, ₹9,000 TDS, ₹2,09,000 settled, ₹3,22,000 receivables and ₹2,95,000 unbilled. Financial outputs are literal verified values, never runtime-calculated outcomes.
+
+**Permissions/validation:** action-specific policy; schemas at form and adapter entry; finite nonnegative money/precision, dates and references; no sensitive logs/storage.
+
+**Tests/desktop/mobile:** snapshot isolation, unsupported-input review/no mutation, reset, duplicate confirmation, cross-route context and existing aging regressions; complete financial review readable on all widths.
+
+**Checkpoint:** approve contracts, scenario catalogue and foundation.
 
 ## Stage 1 — Customers and financial references
-- **Modules/screens:** Customers directory/details/history/create/edit; Settings tabs for FY, GST and TDS. Separate content routes `/customers`, `/settings` and navigable details as appropriate.
-- **Workflows:** search/select customer; inspect separately labeled orders, issued invoices and payments; create/edit contact and billing fields; guarded customer deletion. List/add FY, seed standard years, delete unused FY; add GST/TDS and deactivate rates. Show historical billing snapshots unchanged after customer/rate changes.
-- **Reusable components:** customer form, reference pickers, domain list/cards, history tabs and guarded destructive confirmation.
-- **API dependencies:** GET/POST `/api/customers`, GET/PUT/DELETE `/api/customers/{id}`; GET/POST `/api/settings/financial-years`, POST `…/seed`, DELETE `…/{code}`; GET `/api/settings/taxes`, POST/DELETE `…/taxes/gst` and `…/taxes/tds/{id}`.
-- **Mock requirements:** map `phone`/`lifetime_billed` to actual `phone_1`/aggregate fields; retain baseline untouched. Add isolated customer/reference success/error fixtures, inactive-rate states and linked-record deletion failures; no invented historical sales.
-- **Permissions/validation:** all verified roles read; sales creates customers; finance/admin edits/deletes customers and maintains references. Validate unique names/GST normalization, contact/address fields, ISO FY dates/start-before-end, rate representation and linked-history guards. Do not invent stricter business rules without flagging them.
-- **Tests/acceptance:** customer duplicate/error handling, snapshot immutability, FY deletion guard, deactivation history, permission matrix and selector refresh. Desktop history tables/mobile cards link back to approved details without losing context.
-- **Checkpoint:** approve directory/reference workflows before financial document creation.
+**Screens/workflows:** `/customers` directory/create/edit/details/history and guarded deletion; `/settings` FY/GST/TDS tabs. List/add/seed/delete unused FY; add/deactivate rates. Customer changes never rewrite issued billing snapshots; distinguish orders, invoices and payments in history.
+
+**Components:** customer form, domain list/cards, history tabs, reference selectors, destructive confirmation.
+
+**API dependencies:** GET/POST customers; GET/PUT/DELETE customer ID; GET/POST financial-years, POST seed, DELETE FY code; GET taxes; POST GST/TDS and DELETE rate ID (deactivation).
+
+**Mocks:** map handover phone/lifetime fields to actual response fields; isolated customer/reference success/failure fixtures, inactive rates and linked-record deletion errors. Label incomplete history, without inventing sales.
+
+**Permissions/validation:** verified roles read; sales creates customers; finance/admin edits/deletes and maintains settings. Validate name duplicates/GST normalization, contact fields, ISO FY dates/start-before-end, reference rates and history guards; flag any extra frontend restrictions.
+
+**Tests/desktop/mobile:** duplicate/retry, immutable billing snapshot, FY deletion, deactivation history, permission matrix and selector updates; desktop history tables/mobile cards link to existing details.
+
+**Checkpoint:** approve customers/references before document workflows.
 
 ## Stage 2 — Orders and invoice lifecycle
-- **Modules/screens:** extend existing Orders/Invoices with create, edit, line-item entry and conversion; preserve listings/drawers. Include recurring/direct invoice creation where contracts permit, and guarded deletion of unissued orders.
-- **Workflows:** select customer/FY/executive; enter PO/document identity, currency/exchange rate, items or supported manual amounts; review verified totals; submit supported creation scenario. Edit permitted metadata/descriptions; convert PO with invoice number/date/due date and frozen billing snapshot; view result in Orders/Invoices/aging. Financial edit controls for persisted items remain unavailable.
-- **Reusable components:** document form, line-item editor, locked-field presentation, scenario-total review, conversion form and contextual drawer actions.
-- **API dependencies:** GET/POST `/api/invoices`, GET/PUT/DELETE by ID, POST `/{id}/convert-to-invoice`; customer/user/FY/tax reads. Use distinct create/update/conversion payloads.
-- **Mock requirements:** verified creation, metadata/description edit, recurring/direct and conversion snapshots; customer refresh/issuance snapshot, known net-30 output, supported multi-currency example. Amounts/tax/FX outcomes are supplied, not calculated live.
-- **Permissions/validation:** sales creates unbilled orders; finance/admin edits/converts/deletes and creates issued documents. Validate unique PO/invoice IDs, FY date boundaries, sales executive references, positive quantities/FX, nonnegative prices, allowed currency/tax; honor legal locks and deletion guards.
-- **Tests/acceptance:** create/edit/convert end-to-end, field locks, incorrect item ownership, duplicate IDs, unsupported amount inputs review-only, FY/currency handling, unbilled exclusion and cross-screen reconciliation. Desktop item rows/mobile stacked items remain fully editable before creation; reviews never clip totals.
-- **Checkpoint:** approve complete document workflows and financial locks.
+**Screens/workflows:** extend existing Orders/Invoices with creation, permitted editing, line-item entry, PO conversion and guarded unissued deletion. Include supported recurring/direct invoice creation. Select customer/FY/executive, enter identity/currency/FX/items or manual amounts, review verified totals, confirm and view result. Persisted item financial edits stay unsupported.
+
+**Components:** document form, pre-creation item editor, locked fields, total review, conversion form, contextual actions.
+
+**API dependencies:** GET/POST invoices; GET/PUT/DELETE ID; POST ID/convert-to-invoice; customer/user/FY/tax reads. Separate create/update/conversion payloads.
+
+**Mocks:** verified creation, metadata/description edit, recurring/direct and conversion snapshots; frozen billing identity, known net-30 output and supported FX example. No live tax/FX financial engine.
+
+**Permissions/validation:** sales creates unbilled orders; finance/admin edits/converts/deletes and creates issued documents. Validate unique PO/invoice IDs, FY boundaries, executive references, positive quantity/FX, nonnegative price, allowed currency/tax and legal/deletion locks.
+
+**Tests/desktop/mobile:** create/edit/convert flows, item ownership, duplicates/locks, unsupported inputs review-only, FY/currency handling and cross-screen/aging reconciliation. Item rows become stacked mobile fields; review retains all amounts.
+
+**Checkpoint:** approve document workflows and immutable-field behavior.
 
 ## Stage 3 — Payments, settlements and cancellation
-- **Modules/screens:** `/payments` ledger/details/history; shared payment form from ledger and invoice drawer; correction sequence and invoice cancellation.
-- **Workflows:** choose issued invoice, enter cash/TDS, section/date/mode/remittance/notes; review then submit verified partial/full, cash-only, TDS-only and combined scenarios. Show result/history and consistent balances. Correction reviews reversal and replacement separately; cancellation requires no active payments and reason confirmation.
-- **Reusable components:** invoice picker, cash/TDS review, payment history, correction steps, cancellation confirmation and retry/result states.
-- **API dependencies:** POST `/api/payments`, DELETE `/api/payments/{id}`, GET `/api/payments/recent?limit=…`, invoice detail, POST `/api/invoices/{id}/cancel`. Do not imply server pagination beyond recent-history coverage.
-- **Mock requirements:** verified partial/full settlement, reversal intermediate state, successful replacement and replacement-failure state, zero-payment cancellation. INV-2026-042 with its existing payment must demonstrate blocked cancellation, not pretend eligibility.
-- **Permissions/validation:** finance/admin records/reverses/cancels; verified roles read history. Nonnegative cash/TDS, positive combined settlement, valid date/mode, duplicate remittance and idempotency rules, cancelled/paid guards and overpayment rejection. Review settlement amount without constructing new authoritative balances; scenario outcomes provide them.
-- **Tests/acceptance:** cash/TDS breakdown and KPI reconciliation, idempotent replay, overpayment/duplicate failures, reversal/replacement recovery, cancellation guard, aging membership and reset. Mobile review must retain invoice, payment components, prior/next balance and accessible confirmation actions.
-- **Checkpoint:** approve financial scenario results and correction safety.
+**Screens/workflows:** `/payments` ledger/details; shared form from ledger/invoice drawer. Choose issued invoice; enter cash/TDS, section/date/mode/remittance/notes; review/confirm verified partial/full, cash-only, TDS-only and combined settlements. Correction separately reviews reversal/replacement; cancellation reviews reason and requires zero active payments.
+
+**Components:** invoice picker, cash/TDS review, history, correction steps and recoverable submission states.
+
+**API dependencies:** POST payments, DELETE payment ID, GET payments/recent with coverage label, invoice detail, POST invoice ID/cancel. No invented server pagination.
+
+**Mocks:** verified settlement/reversal/replacement snapshots, replacement failure after successful reversal, zero-payment cancellation; existing INV-2026-042 demonstrates blocked cancellation while its payment remains.
+
+**Permissions/validation:** finance/admin mutations; verified roles read. Nonnegative cash/TDS, positive combined settlement, valid date/mode, remittance duplicate/idempotency checks, overpayment/cancelled/paid guards. Authoritative next balances come only from snapshots.
+
+**Tests/desktop/mobile:** cash/TDS/KPI agreement, duplicate and idempotent replay, overpayment, correction recovery, cancellation guard, aging/reset consistency. Mobile review shows invoice, settlement breakdown and previous/next balance with reachable actions.
+
+**Checkpoint:** approve financial outcomes and correction safety.
 
 ## Stage 4 — Sales targets and performance
-- **Modules/screens:** `/sales-targets`, executive/FY selection, annual/half-year/quarter/month targets, monthly/yearly bottom-line fields and attainment view.
-- **Workflows:** assign eligible sales executive, inspect existing targets, enter overrides or request backend-default periodic values, review and demonstrate verified save; inspect performance and contributing records.
-- **Reusable components:** executive selector, target form, period controls, attainment display and linked record listing.
-- **API dependencies:** GET/POST `/api/users/{id}/targets?fy=…` (FY in POST payload); GET `/api/users`, GET `/api/dashboard/summary` for performance. No invented monthly actuals API.
-- **Mock requirements:** reconcile target-detail versus executive summary coverage in isolated snapshots; explicit unavailable target/history states. Preverified distribution and attainment values; split unbilled order value from issued receivables.
-- **Permissions/validation:** target reads/writes finance/admin per source; no sales/viewer editor. Validate FY/executive references and nonnegative target inputs; never calculate backend-default targets or attainment independently.
-- **Tests/acceptance:** explicit overrides/default-output fixtures, FY/assignment isolation, missing targets, denied roles and performance drill-down consistency. Desktop comparison/mobile period sections retain annual and periodic values.
-- **Checkpoint:** approve target permissions and performance semantics.
+**Screens/workflows:** `/sales-targets`; executive/FY selection, annual/half-year/quarter/month targets, monthly/yearly bottom lines and attainment. Enter overrides or request backend-default periodic values; review verified save and inspect contributing records.
+
+**Components:** target form, executive picker, period controls and attainment/detail views.
+
+**API dependencies:** GET/POST user ID/targets (GET FY query, POST FY payload), GET users and dashboard/summary. No invented monthly-actuals API.
+
+**Mocks:** reconciled target-detail/summary snapshots, missing-history states and verified distribution/attainment; separate unbilled from receivables.
+
+**Permissions/validation:** finance/admin target reads/writes; eligible sales executives, valid FY and nonnegative inputs. Do not independently distribute targets or calculate attainment.
+
+**Tests/desktop/mobile:** overrides/default fixtures, assignment/FY isolation, missing targets, denied roles and drill-down consistency; mobile period sections retain annual and periodic values.
+
+**Checkpoint:** approve permissions and target/performance semantics.
 
 ## Stage 5 — Users and account administration
-- **Modules/screens:** `/users`, create/profile/role update, password reset and guarded deletion; admin-only navigation/actions.
-- **Workflows:** create sanitized demo user; edit name/role; review role effects; simulate reset acknowledgement without creating actual credentials; blocked self/last-admin/historically linked deletion and permitted demo deletion.
-- **Reusable components:** user form, role selector, protected-action review and account detail drawer.
-- **API dependencies:** GET/POST `/api/users`, PUT/DELETE `/{id}`, PUT `/{id}/role`, POST `/{id}/reset-password`. Authentication/session revocation stays future backend responsibility.
-- **Mock requirements:** disposable user fixtures plus self/last-admin/linked-executive examples; no credential persistence or genuine login claims.
-- **Permissions/validation:** admin only mutations; username normalization/length/character rules, valid roles, password requirements, self/last-admin safeguards and historical linkage. Explain actual backend session invalidation after role/reset changes; do not simulate a secure authenticated system.
-- **Tests/acceptance:** guards through direct navigation and confirmation, role action matrix, duplicate user errors and sensitive-data non-retention. Mobile confirmation fully identifies account/action without exposing password in review.
-- **Checkpoint:** approve account-safety demonstrations.
+**Screens/workflows:** `/users`, create/name/role changes, password reset and guarded deletion; admin-only management. Review role effects; demonstrate reset acknowledgement without creating credentials. Block self/last-admin/linked-executive deletion.
 
-## Stage 6 — Reports, exports and full acceptance
-- **Modules/screens:** `/reports`, existing financial summaries, Invoices & Collections export preview; payment history coverage explicitly labeled.
-- **Workflows:** select FY/all years; inspect report data and linked documents; demonstrate request-ticket/download success plus expiry/reuse/errors. Provide a real downloadable sanitized fixture XLSX labeled demo; production ticket exchange remains an adapter placeholder, not a security claim.
-- **Reusable components:** report filters, preview table/cards, export status and downloadable fixture adapter.
-- **API dependencies:** GET `/api/dashboard/summary`, invoice reads, POST `/api/export/token` → GET `/api/export/excel?fy=…&ticket=…`. Preserve single-use/300-second contract, filename/content type and server formula-injection defenses. No unauthenticated static production URL.
-- **Mock requirements:** preverified FY/ALL XLSX matching the selected scenario and existing worksheet contract; expired/consumed-ticket simulations. Unsupported report types are explicitly deferred, not dead controls.
-- **Permissions/validation:** verified roles including viewer may export; validate/encode filters and IDs, prevent duplicate download attempts and unsafe spreadsheet strings; never expose real tokens.
-- **Tests/acceptance:** inspect workbook rows/types/cash/TDS/settled values and safe text, expiry/reuse/error handling, report/context/reset consistency. Mobile readable preview/download states; all earlier workflows verified across all four widths and embedded overlays.
-- **Final checkpoint:** present completed workflow/permission matrix, tests and build/type/browser evidence, scenario reconciliation, unresolved contracts and integration handoff. Stop for final frontend approval; backend integration/publication need separate authorization.
+**Components:** user form, role selector, account drawer and protected-action review.
 
-## Technical implementation boundaries
-Use distinct TanStack content routes and route-specific metadata; reuse the current shell/provider without replacing approved component trees. Extend the provider with a separate demo snapshot/context and reset; archived comparisons always use baseline. Query keys include FY/scenario where applicable; route loading uses TanStack Query patterns. Typed browser-safe adapters return validated DTOs; mock handlers match supported inputs and return complete literal verified snapshots. Later FastAPI calls replace adapters, not forms. React Hook Form/Zod validate both form and adapter inputs; render strings safely and never log credentials. Future backend must independently validate/authenticate/authorize all writes. No new server functions, database, role tables or authentication in this frontend phase.
+**API dependencies:** GET/POST users, PUT/DELETE ID, PUT ID/role, POST ID/reset-password. Real session revocation remains backend responsibility.
+
+**Mocks:** disposable users and self/last-admin/history-linked examples; no genuine login or credential-persistence claims.
+
+**Permissions/validation:** admin mutations; username normalization/length/characters, valid roles, password requirements, last-admin/self/history guards. Explain backend role/reset session invalidation without pretending mock role switching is authentication.
+
+**Tests/desktop/mobile:** direct-route and confirmation guards, duplicate users, action matrix and sensitive-data non-retention; account identified clearly in confirmation, passwords omitted from review.
+
+**Checkpoint:** approve account-safety workflows.
+
+## Stage 6 — Reports, exports and final acceptance
+**Screens/workflows:** `/reports`, existing financial summaries, FY/ALL filters, linked records and Invoices & Collections workbook preview. Demonstrate ticket/download success, expiry/reuse/errors. Supply real sanitized demo XLSX downloads; production ticket handling stays an adapter contract, not a mock security claim.
+
+**Components:** report filters, preview tables/cards, download status and fixture export adapter.
+
+**API dependencies:** dashboard/summary and invoice reads; POST export/token → GET export/excel with encoded FY/ticket. Preserve single-use/300-second expiry, filename/type and formula-injection defenses. No unauthenticated production links.
+
+**Mocks:** verified FY/ALL workbook matching selected snapshot, existing worksheet schema and safe text; expired/consumed-ticket scenarios. Unsupported report types explicitly deferred.
+
+**Permissions/validation:** verified roles including viewer export; validate/encode filters, protect spreadsheet strings, prevent duplicate downloads and never expose real tokens.
+
+**Tests/desktop/mobile:** inspect workbook rows/types/cash/TDS/settlements and safe strings, expiry/reuse/error states, context/reset consistency; readable mobile previews. Reverify every earlier workflow at all four widths and inside embedded overlays.
+
+**Final checkpoint:** present workflow/permission matrix, reconciliation, test/build/type/browser evidence, unresolved contracts and integration handoff. Stop for frontend approval; integration/publication require separate authorization.
+
+## Technical boundaries
+Distinct TanStack content routes with route-specific metadata; retain approved component trees. Extend shared in-memory context with isolated demo snapshots/reset; comparison always reads baseline. Query keys include FY/scenario. Browser-safe typed adapters validate DTOs and supported inputs, returning whole predefined snapshots; future FastAPI calls replace adapters, not forms. React Hook Form/Zod validates form and adapter inputs; safely render text and never log credentials. Future backend independently authenticates, authorizes and validates writes. No server functions, role tables, database or authentication added in this phase.
