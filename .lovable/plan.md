@@ -1,121 +1,84 @@
-# CollectFlow — Interactive Visual Direction Comparison
+# CollectFlow — Selected UI Refinement
 
-## Goal
+## Approved direction
 
-Build one frontend-only comparison experience containing three genuinely different, interactive CollectFlow dashboards. All options will use the same sanitized mock data, financial semantics, and feature inventory so the decision is based on design quality rather than different content.
+Create one cohesive interface using **Design B’s visual language, Outfit/Figtree typography, colors, grouped sidebar, and KPI treatment**, with **Design A’s financial table detail** and **Design C’s contextual drawer interaction**.
 
-This is a design-selection prototype only. It will not replace or modify the original FastAPI application, connect to production, introduce authentication or storage, or implement the complete product.
+This phase covers the application shell, dashboard, orders, invoices, record details, search/filter interactions, and responsive/state refinements only. Remaining modules and backend integration stay out of scope.
 
-## Authoritative references
+## 1. Final application shell
 
-- Use the supplied handover, OpenAPI contract, mock fixtures, and permissions matrix.
-- Inspect the original GitHub repository read-only, focusing on `app/`, `static/js/`, `docs/lovable-handoff/`, and `tests/`.
-- Treat the original backend behavior and regression tests as authoritative where they clarify response shapes, calculations, roles, or workflow constraints.
-- Keep the new React work independent and structured for later integration into a separate frontend repository.
-- Document any discrepancy between source code, tests, OpenAPI, and handover instead of silently choosing or inventing behavior.
+- Make the selected interface the first screen at `/`; remove A/B/C selection from the primary experience.
+- Preserve the comparison independently at `/design-comparison` as a reference, without mixing comparison controls into the application.
+- Group navigation into Overview, Revenue Operations, Performance, and Administration as specified in your brief.
+- Keep Dashboard, AR Aging, Orders, and Invoices usable in this phase. Mark remaining modules clearly as not implemented; do not present sample fragments as completed modules.
+- Verify navigation and action visibility against the original permission references. Use synthetic role contexts to demonstrate permission states, not a new login system.
 
-## Comparison experience
+## 2. Financial dashboard
 
-The first screen will be the actual dashboard comparison—not a marketing page.
+- Retain B’s prominent KPI cards while distinguishing total invoiced, issued outstanding, cash collected, TDS recognized, settlement rate, overdue receivables, and unbilled orders/value.
+- Label cash-plus-TDS performance **Settlement Rate** and rename the comparison chart **Invoiced vs Settlements**, keeping cash and TDS separately inspectable.
+- Preserve financial-year context and consistent INR formatting.
+- Separate recent orders and recent invoices into clearly labeled views so an unbilled PO never receives an invoice-total or receivables label.
+- Keep the original six aging categories and supplied mock totals. Use an explicit fixture-to-category association for drill-down rather than recalculating aging from today’s date.
+- Aging selection opens or filters the issued-invoice queue only; zero-value categories show an appropriate empty result.
 
-- A persistent **A / B / C switcher** changes the entire visual system and dashboard composition, not just colors.
-- Each option shows the same current fiscal year, KPI values, aging data, collection data, executive performance, and recent order/invoice records.
-- Controls will demonstrate navigation, fiscal-year selection, chart inspection, aging selection, table filtering, row selection, sidebar behavior, and mobile navigation.
-- A comparison tray will summarize the active option’s density, navigation model, table treatment, and mobile approach without obscuring the interface.
-- A viewport preview control will present desktop and mobile compositions inside the experience; the layouts will also respond naturally when the browser itself is resized.
-- Mock financial mutations will never appear committed. This comparison focuses on viewing, filtering, and navigation rather than pretending to save financial changes.
+## 3. Separate orders and invoices
 
-## Option A — Precision Enterprise
+### Orders
 
-A compact operational workspace optimized for finance teams processing dense records.
+Show PO number, customer, order date, order value, unbilled value, executive, and status. Use document-appropriate detail labels and contextual View Order, Edit Order, and Convert to Invoice affordances where permitted.
 
-- **Typography:** Sora headings and controls; Manrope body and tabular financial data.
-- **Visual identity:** deep navy navigation, cool white work surface, cobalt actions, restrained semantic risk colors, thin rules, minimal shadow, 4–6px radii.
-- **Layout:** fixed collapsible rail; compact header; high-density KPI strip; charts and aging arranged for rapid comparison; wide operational table.
-- **KPI treatment:** concise labels, strong tabular numerals, deltas aligned consistently, minimal decoration.
-- **Charts:** crisp gridlines, direct labels, square-ended bars, accessible categorical colors.
-- **Table:** dense rows, strong column alignment, sticky identity column, visible status and balance hierarchy.
-- **Mobile:** prioritized financial record summaries with expandable secondary details and a compact action bar.
+### Invoices
 
-## Option B — Calm Modern SaaS
+Show invoice number, customer, invoice total, cash/TDS settlement detail, outstanding, due date, overdue indicator, executive, and payment status. Exclude unissued orders from this listing.
 
-A clean, approachable workspace balancing finance operations with ease of use for sales and executives.
+### Shared table behavior
 
-- **Typography:** Outfit headings; Figtree body and controls.
-- **Visual identity:** luminous neutral canvas, charcoal text, desaturated teal action color, soft blue information, sage positive state, coral risk, subtle elevation, 6–8px radii.
-- **Layout:** light grouped sidebar; spacious page header; modular KPI row; balanced two-column insights; simplified recent-record list.
-- **KPI treatment:** comfortable spacing, plain-language context, restrained supporting icons.
-- **Charts:** rounded bars, soft fills, clear legends, and concise annotations.
-- **Table:** fewer visible columns with progressive disclosure into a contextual detail panel.
-- **Mobile:** touch-friendly bottom navigation, stacked KPI summaries, and comfortable record cards.
+- Combine B’s styling with A’s denser, right-aligned financial columns.
+- Provide independent page search, relevant status/executive filters, sorting, working pagination with page-size selection, result counts, and contextual row menus.
+- Reset pagination when filters change; disable page movement only when there are no further results.
+- Keep all financial values grounded in the supplied fixtures; do not fabricate extra invoices merely to populate pages.
+- Remove irrelevant global actions and redundant listing links.
+- Financial mutation affordances explain their unconnected status; no change appears saved. Full creation, editing, payment, cancellation, and issuance workflows remain outside this phase.
 
-## Option C — Premium Analytics
+## 4. Record details and mobile cards
 
-A distinctive fintech command center emphasizing analytical clarity and executive confidence.
+- Desktop: a responsive side drawer with document identity, financial summary, customer snapshot, commercial terms, line items, and invoice payment history.
+- Mobile: a full-width detail sheet with stacked sections, a scrollable body, a visible close control, and accessible footer actions.
+- Orders show Order Value/Unbilled Value and issuance status, not Invoice Total/Outstanding receivables.
+- Invoice cards preserve invoice number, customer, invoice total, outstanding, due date, payment status, and overdue indicator. Order cards use their distinct document semantics.
+- Constrain drawers, overlays, menus, and filters to the actual viewport or embedded mobile preview frame. Do not rely on desktop positioning inside a mobile frame.
 
-- **Typography:** Space Grotesk headings and metrics; DM Sans body; prominent tabular numerals.
-- **Visual identity:** graphite structural surfaces, pearl content canvas, cyan analytical accent, mint performance, amber aging, coral delinquency, refined contrast, controlled depth.
-- **Layout:** narrow dark rail; editorial dashboard header; asymmetrical analytical grid; prominent receivables narrative; premium recent-activity presentation.
-- **KPI treatment:** large metrics with benchmark context and stronger visual rhythm.
-- **Charts:** layered comparisons, benchmark lines, coordinated highlighting, richer tooltips, and more analytical labeling.
-- **Table:** polished ledger treatment with grouped financial values and an integrated selected-record preview.
-- **Mobile:** executive-first insight feed followed by operational queues and a compact command dock.
+## 5. Search, readability, and states
 
-## Shared dashboard content
+- Give global search its own query and supported mock results across orders, invoices, and customers. Opening a result selects its correct record detail without silently changing table filters.
+- Keep table search restricted to the current screen.
+- Increase sidebar, header, legend, metadata, filter, and action readability; retain restrained status styling and tabular numerals.
+- Provide visible keyboard focus, accessible names, touch-sized controls, Escape dismissal, focus return, and reduced-motion support.
+- Demonstrate loading, empty, retryable error, and permission-denied states without adding backend behavior.
 
-Every direction will include the same functional content:
+## Technical approach
 
-1. Sidebar navigation covering Overview, Orders, Invoices, Payments, Customers, AR Aging, Targets, Reports, and Administration.
-2. Dashboard header with fiscal-year context, search treatment, role identity, and relevant quick action affordances.
-3. KPIs for invoiced revenue, cash collected, TDS recognized, settled amount, outstanding receivables, and collection rate.
-4. Year-over-year invoiced-versus-collections visualization.
-5. Receivables aging across Current, 1–30, 31–60, 61–90, and 90+ day buckets.
-6. Collection composition and recovery progress.
-7. Executive target attainment summary.
-8. Recent orders and invoices using realistic Indian currency formatting, PO/invoice identifiers, due dates, statuses, cash, TDS, and outstanding balances.
-9. Loading, empty, and error demonstrations accessible from a prototype-state control.
+- Keep the existing React/TanStack/Vite foundation and independent mock-only architecture. No original repository edits, production calls, database, authentication, or FastAPI changes.
+- Split the final shell, dashboard, document listings, record drawer, and search into reusable components; retain the comparison separately.
+- Use shared typed fixture selectors for issued invoices, orders, fiscal-year subsets, and aging membership. Treat backend contracts as authority, not a new financial engine.
+- Replace design-specific branching in the shared dialog primitive with an explicit reusable drawer/portal pattern that supports viewport containment.
+- Define selected-design colors, typography, surfaces, and states through semantic CSS tokens; isolate comparison styles from the final interface.
+- Give each new content route unique CollectFlow metadata.
+- Record the approved design preferences and updated scope in project memory, and architecture rules in `AGENTS.md`, during implementation.
 
-## Interaction design
+## Verification and approval checkpoint
 
-- Selecting an aging bucket coordinates highlighting and filters the mock receivables shown below it.
-- Search and status controls filter the shared mock order/invoice rows.
-- Selecting a record opens each direction’s distinct detail treatment while preserving the same customer snapshot, line item, settlement, and payment facts.
-- Sidebar collapse, mobile menu, fiscal-year selector, chart tooltips, table sorting, and pagination treatment will be functional.
-- Keyboard focus, labels, contrast, reduced-motion support, and non-color status cues will be consistent across all options.
+Use actual browser rendering at **1440px desktop, 768px tablet, 390px mobile, and 320px narrow mobile**, plus the embedded mobile preview.
 
-## Responsive comparison
+Verify:
 
-Each direction will be designed independently at three layout ranges:
+- No unintended page-level horizontal scrolling, clipped controls, or overflowing drawers.
+- Complete financial information in tables/cards and readable chart labels.
+- Issued receivables reconcile with supplied dashboard/aging values; unbilled orders never appear in aging results.
+- Independent global/table search, filters, sorting, pagination, navigation, row menus, drawer dismissal, and state recovery.
+- Role-based visibility follows verified references; unavailable modules/actions are clearly identified.
+- Focused fixture/selector and interaction regression tests pass, and the preview reports no build or runtime errors.
 
-- **Desktop:** full navigation and analytical layout at 1280px and above.
-- **Tablet:** compact navigation and reduced financial columns.
-- **Mobile:** purpose-built navigation and stacked content around 390px; no desktop table squeezed into horizontal overflow.
-
-The final verification will inspect all three options at desktop and mobile sizes for clipping, overlap, readability, interaction, and consistent mock values.
-
-## Implementation structure
-
-- Keep the existing TanStack Start/Vite foundation and build the prototype at `/`.
-- Use a shared typed mock-data layer so values remain identical across A, B, and C.
-- Give each concept its own dashboard composition and theme tokens; share only behavior and small primitives where doing so does not make the designs converge.
-- Define all colors, shadows, radii, and typography as semantic tokens in the global design system.
-- Load fonts from the document head and use accessible chart and icon components.
-- Add route-specific metadata for the comparison page.
-- Record the independent mock-frontend architecture in `AGENTS.md` after implementation.
-
-## Boundaries
-
-- No edits to the original GitHub repository.
-- No FastAPI, SQLite, auth, database, or API integration changes.
-- No real credentials or production requests.
-- No complete customer, payment, report, user, settings, or mutation workflows in this stage.
-- No deployment or publication.
-- No selection will be presumed: after the interactive comparison is presented, implementation stops for explicit approval of A, B, C, or a clearly specified hybrid—especially the requested possibility of C’s premium quality with B’s operational simplicity.
-
-## Validation and handoff
-
-- Verify the project preview builds cleanly.
-- Test A/B/C switching and core interactions.
-- Check desktop and mobile screenshots for each direction.
-- Confirm equal financial values and status semantics across all three.
-- Present the comparison for review, summarize meaningful differences, and request explicit visual-direction approval before any broader frontend implementation.
+Present the refined interface and stop for your approval before implementing remaining modules or integrating the backend. Do not publish or deploy.
