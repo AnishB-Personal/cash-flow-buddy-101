@@ -15,4 +15,8 @@ export const contractGaps = [
  'Future FastAPI aging must accept or return one explicit reporting date; mock reporting remains 30 April 2026.',
  'Credit notes, refunds, partial cancellation and unsupported account/reference changes remain unavailable.',
  'New financial before/after scenarios need verified literal snapshots before their stage is enabled; Stage 0 does not fabricate settlements or issuance.',
+ 'Stage 1 source permits finance/admin customer deletion and settings maintenance despite admin-only documentation. Sales customer creation is verified; viewer writes remain denied.',
+ 'Source normalizes GSTIN but does not validate its format/contact lengths. Stage 1 adds explicit frontend/adapter validation; future server validation is still required.',
+ 'Source tax reads return active rows only. Demo retains deactivated references for history inspection; no live inactive-list endpoint or reactivation is claimed.',
+ 'Rates use explicit percentage input mapped to fractional payloads: the source interprets rate=1 as 100%, not 1%. Frontend limits rates to 0–100% with three decimal places; source only specifies nonnegative rates.',
 ];
