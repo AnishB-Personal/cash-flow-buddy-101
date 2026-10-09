@@ -15,11 +15,11 @@ export const overdueLabel = (row: Invoice, referenceDate = asOfDate) => {
 };
 export const dateLabel = (value: string | null) => value ? new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)) : '—';
 export const labelStatus = (value: string) => value.charAt(0) + value.slice(1).toLowerCase();
-export function selectRecords(screen: Screen, fy: string, _role: Role, query = '', status = 'All statuses', executive = 'All executives', bucket: string | null = null, referenceDate = asOfDate) {
- return data.invoices.filter(row => row.fy_code === fy && (screen !== 'Invoices' && screen !== 'AR Aging' || issued(row)) && (screen !== 'AR Aging' || isReceivable(row)) && (!bucket || invoiceAging(row, referenceDate) === bucket) && (status === 'All statuses' || row.computed_status === status) && (executive === 'All executives' || row.executive_name === executive) && `${row.customer_name} ${row.po_number} ${row.invoice_number ?? ''}`.toLowerCase().includes(query.toLowerCase()));
+export function selectRecords(screen: Screen, fy: string, _role: Role, query = '', status = 'All statuses', executive = 'All executives', bucket: string | null = null, referenceDate = asOfDate, records: Invoice[] = data.invoices) {
+ return records.filter(row => row.fy_code === fy && (screen !== 'Invoices' && screen !== 'AR Aging' || issued(row)) && (screen !== 'AR Aging' || isReceivable(row)) && (!bucket || invoiceAging(row, referenceDate) === bucket) && (status === 'All statuses' || row.computed_status === status) && (executive === 'All executives' || row.executive_name === executive) && `${row.customer_name} ${row.po_number} ${row.invoice_number ?? ''}`.toLowerCase().includes(query.toLowerCase()));
 }
-export function snapshot(fy: string, role: Role, referenceDate = asOfDate) {
- const rows = selectRecords('Orders', fy, role);
+export function snapshot(fy: string, role: Role, referenceDate = asOfDate, records: Invoice[] = data.invoices) {
+ const rows = selectRecords('Orders', fy, role, '', 'All statuses', 'All executives', null, referenceDate, records);
  // Aggregate supplied amounts only. Cash+TDS/outstanding originate in the supplied snapshot.
  const invoices = rows.filter(row => issued(row) && row.computed_status !== 'CANCELLED');
  const sum = (field: 'total_amount' | 'outstanding_balance' | 'total_cash_paid' | 'total_tds_deducted' | 'total_paid', list = invoices) => list.reduce((total, row) => total + row[field], 0);
