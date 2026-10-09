@@ -1,84 +1,58 @@
-# CollectFlow — Selected UI Refinement
+# CollectFlow — Final Aging Date Correction
 
-## Approved direction
+## Scope
 
-Create one cohesive interface using **Design B’s visual language, Outfit/Figtree typography, colors, grouped sidebar, and KPI treatment**, with **Design A’s financial table detail** and **Design C’s contextual drawer interaction**.
+Correct reporting-date accuracy only. Preserve the approved Design B styling, navigation, dashboard composition, tables and drawers. Keep the original backend untouched, use mock data only, and do not publish or connect to production.
 
-This phase covers the application shell, dashboard, orders, invoices, record details, search/filter interactions, and responsive/state refinements only. Remaining modules and backend integration stay out of scope.
+## Verified findings
 
-## 1. Final application shell
+- The selected workspace classifies invoice 101 using a hardcoded “Current / Not Due” association, without a reporting date.
+- The shared fixtures contain one issued invoice, **INV-2026-042**, due **12 May 2026**, with a payment dated **20 April 2026** and **₹3,22,000** outstanding. The other record is an unbilled order.
+- The raw aging summary contains five categories; the frontend presents six. The original backend defines six boundaries: current, 1–30, 31–60, 61–90, 91–180, and over 180 days.
 
-- Make the selected interface the first screen at `/`; remove A/B/C selection from the primary experience.
-- Preserve the comparison independently at `/design-comparison` as a reference, without mixing comparison controls into the application.
-- Group navigation into Overview, Revenue Operations, Performance, and Administration as specified in your brief.
-- Keep Dashboard, AR Aging, Orders, and Invoices usable in this phase. Mark remaining modules clearly as not implemented; do not present sample fragments as completed modules.
-- Verify navigation and action visibility against the original permission references. Use synthetic role contexts to demonstrate permission states, not a new login system.
+## 1. Establish an explicit snapshot date
 
-## 2. Financial dashboard
+Use **`asOfDate = "2026-04-30"`**, displayed as **“Aging as of 30 Apr 2026”**.
 
-- Retain B’s prominent KPI cards while distinguishing total invoiced, issued outstanding, cash collected, TDS recognized, settlement rate, overdue receivables, and unbilled orders/value.
-- Label cash-plus-TDS performance **Settlement Rate** and rename the comparison chart **Invoiced vs Settlements**, keeping cash and TDS separately inspectable.
-- Preserve financial-year context and consistent INR formatting.
-- Separate recent orders and recent invoices into clearly labeled views so an unbilled PO never receives an invoice-total or receivables label.
-- Keep the original six aging categories and supplied mock totals. Use an explicit fixture-to-category association for drill-down rather than recalculating aging from today’s date.
-- Aging selection opens or filters the issued-invoice queue only; zero-value categories show an appropriate empty result.
+This is a chosen mock month-end reporting date, not a claimed original extraction date. It follows the supplied invoice, order and payment dates and precedes the invoice’s due date, so it reconciles the existing current-aging classification without altering any transactions. Never silently substitute the viewer’s current date.
 
-## 3. Separate orders and invoices
+Expected reconciliation:
 
-### Orders
+| Record | Aging outcome at 30 Apr 2026 |
+|---|---|
+| INV-2026-042, due 12 May 2026 | Not overdue; 0 days overdue; Current / Not Due; ₹3,22,000 |
+| PO-NEXUS-881, unbilled | Excluded from receivables aging |
+| Other five aging categories | No contributing issued invoices; ₹0 |
 
-Show PO number, customer, order date, order value, unbilled value, executive, and status. Use document-appropriate detail labels and contextual View Order, Edit Order, and Convert to Invoice affordances where permitted.
+Payment status remains **Partial**; payment status and overdue status are separate concepts.
 
-### Invoices
+## 2. Apply one reusable date rule
 
-Show invoice number, customer, invoice total, cash/TDS settlement detail, outstanding, due date, overdue indicator, executive, and payment status. Exclude unissued orders from this listing.
+- Replace ID-based aging membership with a small, date-only reporting helper that accepts an explicit reference date and returns days overdue, overdue indicator and bucket.
+- Match the verified backend boundaries: due today or later means 0 days overdue/current; overdue buckets cover 1–30, 31–60, 61–90, 91–180 and 181+ days. Retain the approved visible “180+ days” label.
+- Use UTC calendar-day comparisons so local timezone and time-of-day cannot move an invoice across a boundary.
+- Exclude unbilled orders, cancelled invoices and non-positive balances from aging. Preserve the backend’s null-due-date treatment (0 days overdue) without inventing a due date.
+- Build every aging amount and drill-down from the same eligible issued-invoice records and helper. Normalize the fixture aging summary to the six verified categories without changing invoice or payment amounts.
 
-### Shared table behavior
+## 3. Make the reporting context visible
 
-- Combine B’s styling with A’s denser, right-aligned financial columns.
-- Provide independent page search, relevant status/executive filters, sorting, working pagination with page-size selection, result counts, and contextual row menus.
-- Reset pagination when filters change; disable page movement only when there are no further results.
-- Keep all financial values grounded in the supplied fixtures; do not fabricate extra invoices merely to populate pages.
-- Remove irrelevant global actions and redundant listing links.
-- Financial mutation affordances explain their unconnected status; no change appears saved. Full creation, editing, payment, cancellation, and issuance workflows remain outside this phase.
+- Add **“Aging as of 30 Apr 2026”** to the dashboard aging section, AR Aging page and aging-filtered invoice results, including empty results.
+- Show the same context beside invoice overdue information in desktop tables, mobile cards and invoice details, using existing metadata styling. Include days overdue without introducing new columns or restructuring the drawer.
+- Keep the reference comparison at `/design-comparison`; apply only date-label and aging-consistency corrections there where it consumes shared aging data. Do not redesign or expand its workflows.
 
-## 4. Record details and mobile cards
+## Technical boundaries
 
-- Desktop: a responsive side drawer with document identity, financial summary, customer snapshot, commercial terms, line items, and invoice payment history.
-- Mobile: a full-width detail sheet with stacked sections, a scrollable body, a visible close control, and accessible footer actions.
-- Orders show Order Value/Unbilled Value and issuance status, not Invoice Total/Outstanding receivables.
-- Invoice cards preserve invoice number, customer, invoice total, outstanding, due date, payment status, and overdue indicator. Order cards use their distinct document semantics.
-- Constrain drawers, overlays, menus, and filters to the actual viewport or embedded mobile preview frame. Do not rely on desktop positioning inside a mobile frame.
+Keep the reference date in shared mock reporting metadata and pass it through reusable selectors/helpers, not component-local constants. Future integration can supply the API’s reporting date and authoritative aging fields through this boundary. This helper classifies dates and aggregates supplied outstanding amounts only; it does not calculate payments, taxes, balances or historical ledgers.
 
-## 5. Search, readability, and states
+During implementation, replace the superseded ID-membership architecture rule and record the explicit-date requirement; do not retain conflicting instructions.
 
-- Give global search its own query and supported mock results across orders, invoices, and customers. Opening a result selects its correct record detail without silently changing table filters.
-- Keep table search restricted to the current screen.
-- Increase sidebar, header, legend, metadata, filter, and action readability; retain restrained status styling and tabular numerals.
-- Provide visible keyboard focus, accessible names, touch-sized controls, Escape dismissal, focus return, and reduced-motion support.
-- Demonstrate loading, empty, retryable error, and permission-denied states without adding backend behavior.
+## Validation and final approval
 
-## Technical approach
+- Add regression cases for due before/on/after the reference date; 0, 1, 30, 31, 60, 61, 90, 91, 180 and 181 days; timezone stability; null due dates; paid/cancelled/unbilled exclusions; and partial-but-overdue invoices.
+- Test all six drill-downs against contributing records, dashboard aging totals against issued outstanding, and matching statuses/date labels across dashboard, invoice lists/cards and details.
+- Use test-only date variants to demonstrate overdue behavior; do not add financial records to the application fixtures.
+- Assert unchanged invoiced ₹5,31,000, cash ₹2,00,000, TDS ₹9,000, settlements ₹2,09,000, issued outstanding ₹3,22,000 and unbilled order value ₹2,95,000.
+- Run relevant and existing frontend tests. Check the harness-managed build/type results; do not duplicate its standalone build/typecheck commands. Report any failed or unexecuted checks explicitly.
+- Verify actual rendering and drill-down at 1440px desktop, 768px tablet, 390px mobile and 320px narrow mobile, including the embedded preview and drawer date labels.
 
-- Keep the existing React/TanStack/Vite foundation and independent mock-only architecture. No original repository edits, production calls, database, authentication, or FastAPI changes.
-- Split the final shell, dashboard, document listings, record drawer, and search into reusable components; retain the comparison separately.
-- Use shared typed fixture selectors for issued invoices, orders, fiscal-year subsets, and aging membership. Treat backend contracts as authority, not a new financial engine.
-- Replace design-specific branching in the shared dialog primitive with an explicit reusable drawer/portal pattern that supports viewport containment.
-- Define selected-design colors, typography, surfaces, and states through semantic CSS tokens; isolate comparison styles from the final interface.
-- Give each new content route unique CollectFlow metadata.
-- Record the approved design preferences and updated scope in project memory, and architecture rules in `AGENTS.md`, during implementation.
-
-## Verification and approval checkpoint
-
-Use actual browser rendering at **1440px desktop, 768px tablet, 390px mobile, and 320px narrow mobile**, plus the embedded mobile preview.
-
-Verify:
-
-- No unintended page-level horizontal scrolling, clipped controls, or overflowing drawers.
-- Complete financial information in tables/cards and readable chart labels.
-- Issued receivables reconcile with supplied dashboard/aging values; unbilled orders never appear in aging results.
-- Independent global/table search, filters, sorting, pagination, navigation, row menus, drawer dismissal, and state recovery.
-- Role-based visibility follows verified references; unavailable modules/actions are clearly identified.
-- Focused fixture/selector and interaction regression tests pass, and the preview reports no build or runtime errors.
-
-Present the refined interface and stop for your approval before implementing remaining modules or integrating the backend. Do not publish or deploy.
+Report the selected date and justification, final classifications, unchanged financial totals and validation results. Stop for final approval; no remaining-module implementation, backend integration or publication.
