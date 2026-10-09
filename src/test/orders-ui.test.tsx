@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MockSessionProvider, useMockSession } from '@/components/collectflow/session';
 import { Workspace } from '@/components/collectflow/workspace';
@@ -160,5 +160,86 @@ describe('Stage 2 Orders & Invoices UI Workflows', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close order workflow' }));
     fireEvent.click(screen.getByRole('button', { name: 'Discard inputs' }));
+  });
+
+  it('runs edit order workflow, displays previous and new values in Review and Confirm steps, and updates order state', async () => {
+    mount('Orders');
+
+    // Open unbilled order PO-NEXUS-881 (Order 102) drawer
+    const openBtn = screen.getAllByRole('button', { name: 'PO-NEXUS-881' })[0];
+    if (!openBtn) throw new Error('Missing PO button');
+    fireEvent.click(openBtn);
+    await screen.findByText('ORDER DETAILS');
+
+    // Click Edit Order to open the modal
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Order' }));
+    await screen.findByRole('dialog');
+    expect(screen.getByText('Order metadata')).toBeInTheDocument();
+
+    // Modify editable fields: PO date, due date, account executive, line-item description, remarks
+    fireEvent.change(screen.getByLabelText('PO date'), { target: { value: '2026-04-18' } });
+    fireEvent.change(screen.getByLabelText('Due date'), { target: { value: '2026-05-30' } });
+    fireEvent.change(screen.getByLabelText('Account executive'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Line-item description'), {
+      target: { value: 'DevOps Pipeline & Multi-Cloud Setup' },
+    });
+    fireEvent.change(screen.getByLabelText('Remarks'), {
+      target: { value: 'Client kickoff revised and approved' },
+    });
+
+    // Review step
+    fireEvent.click(screen.getByRole('button', { name: /Review changes/i }));
+    await screen.findByText('Planned field changes');
+
+    // Verify .cf-change-list and .cf-change-row with previous and current values
+    const changeList = document.querySelector('.cf-change-list') as HTMLElement;
+    expect(changeList).toBeInTheDocument();
+    const listScope = within(changeList);
+
+    const changeRows = document.querySelectorAll('.cf-change-row');
+    expect(changeRows.length).toBe(5);
+
+    expect(listScope.getByText('14 Apr 2026')).toHaveClass('cf-change-prev');
+    expect(listScope.getByText('18 Apr 2026')).toHaveClass('cf-change-curr');
+
+    expect(listScope.getByText('30 May 2026')).toHaveClass('cf-change-curr');
+
+    expect(listScope.getByText('Kavya Nair')).toHaveClass('cf-change-prev');
+    expect(listScope.getByText('Neha Rao')).toHaveClass('cf-change-curr');
+
+    expect(listScope.getByText('DevOps Pipeline Implementation')).toHaveClass('cf-change-prev');
+    expect(listScope.getByText('DevOps Pipeline & Multi-Cloud Setup')).toHaveClass('cf-change-curr');
+
+    expect(listScope.getByText('Pending project kickoff')).toHaveClass('cf-change-prev');
+    expect(listScope.getByText('Client kickoff revised and approved')).toHaveClass('cf-change-curr');
+
+    // Confirm step
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to confirmation' }));
+    await screen.findByText('Confirmed field change set');
+
+    // Verify Confirmation step renders identical change set
+    const confirmChangeList = document.querySelector('.cf-change-list') as HTMLElement;
+    expect(confirmChangeList).toBeInTheDocument();
+    const confirmScope = within(confirmChangeList);
+
+    const confirmRows = document.querySelectorAll('.cf-change-row');
+    expect(confirmRows.length).toBe(5);
+    expect(confirmScope.getByText('14 Apr 2026')).toHaveClass('cf-change-prev');
+    expect(confirmScope.getByText('18 Apr 2026')).toHaveClass('cf-change-curr');
+    expect(confirmScope.getByText('Kavya Nair')).toHaveClass('cf-change-prev');
+    expect(confirmScope.getByText('Neha Rao')).toHaveClass('cf-change-curr');
+
+    // Apply confirmation
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm edit order' }));
+
+    // Result step
+    await screen.findByText('Demo result');
+    fireEvent.click(screen.getByRole('button', { name: 'Return to workspace' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    // Reset Demo
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Demo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore baseline' }));
   });
 });
