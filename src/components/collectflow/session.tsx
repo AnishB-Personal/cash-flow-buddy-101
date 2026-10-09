@@ -1,7 +1,8 @@
 import { createContext, useContext, useRef, useState, type ReactNode } from 'react';
 import type { Role } from '@/data/records';
 import { createDemoAdapter, readDemoSnapshot, type DemoSnapshot, type ScenarioId, type DemoReview, type DemoResult } from '@/data/demo';
-type Session = { role: Role; setRole: (value: Role) => void; fy: string; setFy: (value: string) => void; scenario: ScenarioId; selectScenario: (value: ScenarioId) => void; demo: DemoSnapshot; revision: number; resetDemo: () => void; confirmDemo: (review: DemoReview) => Promise<DemoResult> };
+import { readReferences, createReferenceAdapter, type References, type ReferenceReview } from '@/data/references';
+type Session = { role: Role; setRole: (value: Role) => void; fy: string; setFy: (value: string) => void; scenario: ScenarioId; selectScenario: (value: ScenarioId) => void; demo: DemoSnapshot; revision: number; resetDemo: () => void; confirmDemo: (review: DemoReview) => Promise<DemoResult>; references: References; confirmReference: (review: ReferenceReview) => Promise<void> };
 const SessionContext = createContext<Session | null>(null);
 export function MockSessionProvider({ children }: { children: ReactNode }) {
  const [role,setRole] = useState<Role>('finance');const [fy,setFy] = useState('FY 2026-27');
@@ -9,8 +10,10 @@ export function MockSessionProvider({ children }: { children: ReactNode }) {
  const [demo,setDemo] = useState(readDemoSnapshot);
  const [revision,setRevision] = useState(0);
  const adapter = useRef(createDemoAdapter());
- const current = useRef({role,fy,scenario,revision}); current.current = {role,fy,scenario,revision};
- function selectScenario(value: ScenarioId) { adapter.current.reset();setScenario(value);setDemo(readDemoSnapshot());setRevision(value=>value+1); }
+ const [references,setReferences]=useState(readReferences);
+ const referenceAdapter=useRef(createReferenceAdapter());
+ const current = useRef({role,fy,scenario,revision,references}); current.current = {role,fy,scenario,revision,references};
+ function selectScenario(value: ScenarioId) { adapter.current.reset();referenceAdapter.current.reset();setReferences(readReferences());setScenario(value);setDemo(readDemoSnapshot());setRevision(value=>value+1); }
  function resetDemo() { selectScenario('baseline');setFy('FY 2026-27'); }
  async function confirmDemo(review: DemoReview) {
   const context = current.current;
@@ -19,6 +22,15 @@ export function MockSessionProvider({ children }: { children: ReactNode }) {
   if (result.status === 'success') {setDemo(result.snapshot);setRevision(value=>value+1);}
   return result;
  }
- return <SessionContext.Provider value={{role,setRole,fy,setFy,scenario,selectScenario,demo,revision,resetDemo,confirmDemo}}>{children}</SessionContext.Provider>;
+ async function confirmReference(review: ReferenceReview) {
+  const context=current.current;
+  const result=await referenceAdapter.current.confirm(review,context.role,context.references);
+  if(current.current.revision!==context.revision||current.current.role!==context.role||current.current.fy!==context.fy)throw new Error('Context changed. No changes applied.');
+  // Update the guard synchronously so parallel confirmations cannot overwrite each other.
+  current.current={...context,references:result,revision:context.revision+1};
+  setReferences(result);setRevision(value=>value+1);
+  if(!result.years.some(year=>year.code===context.fy))setFy(result.years[0]?.code??'FY 2026-27');
+ }
+ return <SessionContext.Provider value={{role,setRole,fy,setFy,scenario,selectScenario,demo,revision,resetDemo,confirmDemo,references,confirmReference}}>{children}</SessionContext.Provider>;
 }
 export function useMockSession() {const session = useContext(SessionContext);if(!session) throw new Error('Mock session provider is required');return session;}

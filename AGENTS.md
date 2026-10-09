@@ -20,3 +20,6 @@
 - Keep mock role, fiscal-year and isolated scenario snapshots in a shared in-memory provider across financial routes; navigation preserves context, reset restores the immutable baseline, and the comparison always reads baseline fixtures.
 - Validate demo inputs at form and adapter boundaries and recheck action-specific permissions on confirmation; adapters return whole verified snapshots, never financial outcomes calculated from user input.
 - Stage 0 rehearsals use verified metadata-only snapshots and guarded/review-only cases; financial mutation scenarios stay disabled until their own approved stage supplies verified literal results.
+- Store customer and financial-reference masters alongside immutable financial snapshots in the shared mock provider; master edits must never rewrite invoice billing identity or financial fields.
+- Reference forms and adapters share action schemas and revalidate on confirmation; only predefined nonfinancial outcomes can apply, with arbitrary inputs restricted to review.
+- Display rates as explicit percentages and map them to fractional API payloads; this avoids FastAPI's ambiguous rate=1 interpretation without adding a financial calculation engine.
