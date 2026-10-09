@@ -15,6 +15,7 @@
 - [x] Stage 0 validation: 64 tests pass in 8 files; automated build/type checks show build OK. Browser workflows pass at 1440/768/390/320 and embedded preview, including cross-route snapshots, scrolling sheets, reset, validation, denied actions and review-only inputs; no runtime errors or API requests.
 - [x] Stage 0 review prepared: metadata-only verified rehearsals preserve all financial amounts; cancellation rejection and unsupported inputs cannot mutate data. Known contract gaps remain recorded for dependent stages. Existing chart-size warning is test-environment-only.
 - [x] Stage 0 approved; chart warning and API discrepancies remain tracked.
-- [ ] Stage 1: source-verified customer directory/create/edit/history/deletion and FY/GST/TDS reference workflows in isolated demo mode.
-- [ ] Stage 1: regression tests, automated checks and desktop/tablet/mobile/embedded verification.
-- [ ] Stage 1: completion report and approval checkpoint; Stages 2–6, backend integration and publication remain unauthorized.
+- [x] Stage 1: source-verified customer directory/create/edit/history/deletion and FY/GST/TDS reference workflows in isolated demo mode.
+- [x] Stage 1: 87 regression tests pass across 10 files; automated build/type checks show build OK; desktop/tablet/mobile/embedded workflows and role guards verified, no browser runtime errors or API requests.
+- [x] Stage 1: completion report in STAGE_1_REVIEW.md; Stages 2–6, backend integration and publication remain unauthorized.
+- [ ] Await user approval of Stage 1 before starting Stage 2; no further implementation authorized.

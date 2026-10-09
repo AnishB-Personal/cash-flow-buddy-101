@@ -39,7 +39,7 @@ Modified: `src/components/collectflow/session.tsx`, `workspace.tsx`, `src/data/d
 Unchanged: approved plan, baseline JSON, financial/aging authority, comparison tree, original FastAPI repository. Generated route tree is maintained automatically, not authored.
 
 ## Validation
-- Full Vitest regression suite: final result recorded in the completion message; covers all prior Stage 0 and financial tests plus Stage 1 schemas, mappings, isolation, roles, guards, workflows and routes.
+- Full Vitest regression suite: **87 tests passed across 10 files**; covers all prior Stage 0 and financial tests plus Stage 1 schemas, mappings, isolation, roles, guards, workflows and routes. No test failures remain.
 - Harness-managed build/type checks: latest observed `build OK`; standalone build/typecheck commands intentionally not duplicated.
 - Actual Playwright workflows at 1440/768/390/320: customer creation, review/confirmation/result, linked deletion rejection, reference mutation, cross-route persistence, reset and no page overflow. Desktop/tablet tables and mobile forms/cards visually inspected.
 - Embedded phone: form contained within frame, internally scrollable, confirmation controls reachable; comparison route loads separately.
