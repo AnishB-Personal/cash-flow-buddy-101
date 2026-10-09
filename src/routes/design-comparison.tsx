@@ -1,0 +1,3 @@
+import { createFileRoute } from '@tanstack/react-router';
+import { Comparison } from '@/components/collectflow/comparison';
+export const Route = createFileRoute('/design-comparison')({ head:()=>({meta:[{title:'CollectFlow — Original Design Comparison'},{name:'description',content:'Reference prototypes for Precision Enterprise, Calm Modern SaaS and Premium Analytics.'},{property:'og:title',content:'CollectFlow — Original Design Comparison'},{property:'og:description',content:'Compare the three original mock financial workspaces.'},{property:'og:type',content:'website'},{name:'twitter:card',content:'summary_large_image'}]}),component:Comparison });
