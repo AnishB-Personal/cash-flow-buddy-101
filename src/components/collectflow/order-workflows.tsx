@@ -514,8 +514,26 @@ export function OrderWorkflowModal({
                         />
                       </div>
 
+                      {!isIssued && (
+                        <div>
+                          <label htmlFor="edit-executive">Account executive</label>
+                          <select
+                            id="edit-executive"
+                            value={input['executive_id'] ?? String(rec.executive_id ?? '3')}
+                            onChange={e => {
+                              setInput({ ...input, executive_id: e.target.value });
+                              setDirty(true);
+                            }}
+                          >
+                            <option value="3">Neha Rao</option>
+                            <option value="4">Kavya Nair</option>
+                            <option value="5">Arjun Mehta</option>
+                          </select>
+                        </div>
+                      )}
+
                       <div>
-                        <label htmlFor="edit-item-desc">Line item description</label>
+                        <label htmlFor="edit-item-desc">Line-item description</label>
                         <Input
                           id="edit-item-desc"
                           value={input['item_description'] ?? ''}

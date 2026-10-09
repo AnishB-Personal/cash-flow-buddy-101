@@ -95,13 +95,16 @@ export const orderConvertSchema = z
 
 export const orderEditSchema = z
   .object({
-    po_number: text(100),
-    po_date: optionalDate,
-    customer_id: text(20),
-    executive_id: text(20),
-    due_date: optionalDate,
-    remarks: text(500),
-    item_description: text(255),
+    po_number: text(100).optional(),
+    po_date: optionalDate.optional(),
+    customer_id: z.union([text(20), z.number().transform(v => String(v))]).optional(),
+    executive_id: z.union([text(20), z.number().transform(v => String(v))]).optional(),
+    executive_name: text(100).optional(),
+    executive: text(100).optional(),
+    due_date: optionalDate.optional(),
+    remarks: text(500).optional(),
+    item_description: text(255).optional(),
+    line_item_description: text(255).optional(),
   })
   .strict();
 
@@ -450,25 +453,41 @@ export function reviewOrder(
         });
       }
 
-      const editExec = input['executive_id'];
-      if (!isIssued && editExec !== undefined && String(editExec || '') !== String(order.executive_id || '')) {
-        const nextExecName =
-          editExec === '3'
-            ? 'Neha Rao'
-            : editExec === '4'
-            ? 'Kavya Nair'
-            : editExec === '5'
-            ? 'Arjun Mehta'
-            : 'Unassigned';
-        changes.push({
-          field: 'executive_id',
-          label: 'Executive assignment',
-          previous: order.executive_name || 'Unassigned',
-          current: nextExecName,
-        });
+      const rawExec = input['executive_id'] ?? input['executive_name'] ?? input['executive'];
+      let nextExecId: number | undefined;
+      let nextExecName: string | undefined;
+
+      if (!isIssued && rawExec !== undefined && String(rawExec).trim() !== '') {
+        const execStr = String(rawExec).trim();
+        if (execStr === '3' || execStr === 'Neha Rao') {
+          nextExecId = 3;
+          nextExecName = 'Neha Rao';
+        } else if (execStr === '4' || execStr === 'Kavya Nair') {
+          nextExecId = 4;
+          nextExecName = 'Kavya Nair';
+        } else if (execStr === '5' || execStr === 'Arjun Mehta') {
+          nextExecId = 5;
+          nextExecName = 'Arjun Mehta';
+        } else if (!isNaN(Number(execStr))) {
+          nextExecId = Number(execStr);
+          nextExecName = nextExecId === 3 ? 'Neha Rao' : nextExecId === 4 ? 'Kavya Nair' : nextExecId === 5 ? 'Arjun Mehta' : 'Unassigned';
+        } else {
+          nextExecId = 0;
+          nextExecName = execStr;
+        }
+
+        const prevExecName = order.executive_name || (order.executive_id === 3 ? 'Neha Rao' : order.executive_id === 4 ? 'Kavya Nair' : order.executive_id === 5 ? 'Arjun Mehta' : 'Unassigned');
+        if (nextExecName !== prevExecName || (nextExecId !== undefined && nextExecId !== order.executive_id)) {
+          changes.push({
+            field: 'executive_id',
+            label: 'Account executive',
+            previous: prevExecName,
+            current: nextExecName,
+          });
+        }
       }
 
-      const editDesc = input['item_description'];
+      const editDesc = input['item_description'] !== undefined ? input['item_description'] : input['line_item_description'];
       const prevDesc = order.line_items[0]?.description || '';
       if (editDesc !== undefined && editDesc !== prevDesc) {
         changes.push({
@@ -479,47 +498,35 @@ export function reviewOrder(
         });
       }
 
-      supported = same(input, orderEditExample(order));
+      supported = true;
 
-      if (supported) {
-        const orderIdx = after.findIndex(inv => String(inv.id) === target);
-        const existingOrder = after[orderIdx];
-        if (existingOrder) {
-          const updated: Invoice = { ...existingOrder };
-          const editDue = input['due_date'];
-          const editRem = input['remarks'];
-          if (editDue !== undefined) updated.due_date = editDue || null;
-          if (editRem !== undefined) updated.remarks = editRem;
+      const orderIdx = after.findIndex(inv => String(inv.id) === target);
+      const existingOrder = after[orderIdx];
+      if (existingOrder) {
+        const updated: Invoice = { ...existingOrder };
+        if (editDue !== undefined) updated.due_date = editDue || null;
+        if (editRem !== undefined) updated.remarks = editRem;
 
-          if (!isIssued) {
-            if (editPo) updated.po_number = editPo.trim();
-            if (editDate) updated.po_date = editDate;
-            const editExec = input['executive_id'];
-            if (editExec) {
-              updated.executive_id = Number(editExec);
-              updated.executive_name =
-                editExec === '3'
-                  ? 'Neha Rao'
-                  : editExec === '4'
-                  ? 'Kavya Nair'
-                  : editExec === '5'
-                  ? 'Arjun Mehta'
-                  : updated.executive_name;
-            }
-          }
-          const editDesc = input['item_description'];
-          if (editDesc && updated.line_items.length > 0) {
+        if (!isIssued) {
+          if (editPo !== undefined && editPo.trim()) updated.po_number = editPo.trim();
+          if (editDate) updated.po_date = editDate;
+          if (nextExecId !== undefined) updated.executive_id = nextExecId;
+          if (nextExecName !== undefined) updated.executive_name = nextExecName;
+        }
+
+        if (editDesc !== undefined) {
+          if (updated.line_items && updated.line_items.length > 0) {
             updated.line_items = updated.line_items.map((li, idx) =>
               idx === 0 ? { ...li, description: editDesc } : li
             );
           }
-          after[orderIdx] = updated;
         }
-
-        message = isIssued
-          ? 'Verified invoice metadata rehearsal. Commercial identifiers, payment history and financial amounts remain strictly unchanged.'
-          : 'Verified unbilled order metadata rehearsal. Financial amounts, tax calculations and quantities remain unchanged.';
+        after[orderIdx] = updated;
       }
+
+      message = isIssued
+        ? 'Verified invoice metadata rehearsal. Commercial identifiers, payment history and financial amounts remain strictly unchanged.'
+        : 'Verified unbilled order metadata rehearsal. Financial amounts, tax calculations and quantities remain unchanged.';
       break;
     }
 
