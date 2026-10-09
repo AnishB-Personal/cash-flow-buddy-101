@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
+import { MockSessionProvider } from '@/components/collectflow/session';
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
@@ -119,8 +120,8 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      {/* Required: nested routes render here. Removing <MockSessionProvider><Outlet /></MockSessionProvider> breaks all child routes. */}
+      <MockSessionProvider><Outlet /></MockSessionProvider>
     </QueryClientProvider>
   );
 }
