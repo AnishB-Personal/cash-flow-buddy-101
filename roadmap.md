@@ -14,4 +14,8 @@
 - [x] Stage 0: contract register, typed request mapping, validated isolated snapshots/adapters, scenario selection/reset and review-confirm-result foundation implemented.
 - [x] Stage 0 validation: 64 tests pass in 8 files; automated build/type checks show build OK. Browser workflows pass at 1440/768/390/320 and embedded preview, including cross-route snapshots, scrolling sheets, reset, validation, denied actions and review-only inputs; no runtime errors or API requests.
 - [x] Stage 0 review prepared: metadata-only verified rehearsals preserve all financial amounts; cancellation rejection and unsupported inputs cannot mutate data. Known contract gaps remain recorded for dependent stages. Existing chart-size warning is test-environment-only.
-- [ ] Subsequent Phase 3 stages await their defined approval checkpoints; backend integration and publication remain separately unauthorized.
+- [x] Stage 0 approved; chart warning and API discrepancies remain tracked.
+- [x] Stage 1: source-verified customer directory/create/edit/history/deletion and FY/GST/TDS reference workflows in isolated demo mode.
+- [x] Stage 1: 87 regression tests pass across 10 files; automated build/type checks show build OK; desktop/tablet/mobile/embedded workflows and role guards verified, no browser runtime errors or API requests.
+- [x] Stage 1: completion report in STAGE_1_REVIEW.md; Stages 2–6, backend integration and publication remain unauthorized.
+- [ ] Await user approval of Stage 1 before starting Stage 2; no further implementation authorized.

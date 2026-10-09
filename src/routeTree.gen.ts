@@ -11,9 +11,11 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ArAgingRouteImport } from './routes/ar-aging'
+import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as DesignComparisonRouteImport } from './routes/design-comparison'
 import { Route as InvoicesRouteImport } from './routes/invoices'
 import { Route as OrdersRouteImport } from './routes/orders'
+import { Route as SettingsRouteImport } from './routes/settings'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -23,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const ArAgingRoute = ArAgingRouteImport.update({
   id: '/ar-aging',
   path: '/ar-aging',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomersRoute = CustomersRouteImport.update({
+  id: '/customers',
+  path: '/customers',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DesignComparisonRoute = DesignComparisonRouteImport.update({
@@ -40,49 +47,78 @@ const OrdersRoute = OrdersRouteImport.update({
   path: '/orders',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/ar-aging': typeof ArAgingRoute
+  '/customers': typeof CustomersRoute
   '/design-comparison': typeof DesignComparisonRoute
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
+  '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ar-aging': typeof ArAgingRoute
+  '/customers': typeof CustomersRoute
   '/design-comparison': typeof DesignComparisonRoute
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
+  '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/ar-aging': typeof ArAgingRoute
+  '/customers': typeof CustomersRoute
   '/design-comparison': typeof DesignComparisonRoute
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
+  '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/ar-aging' | '/design-comparison' | '/invoices' | '/orders'
+  fullPaths:
+    | '/'
+    | '/ar-aging'
+    | '/customers'
+    | '/design-comparison'
+    | '/invoices'
+    | '/orders'
+    | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/ar-aging' | '/design-comparison' | '/invoices' | '/orders'
+  to:
+    | '/'
+    | '/ar-aging'
+    | '/customers'
+    | '/design-comparison'
+    | '/invoices'
+    | '/orders'
+    | '/settings'
   id:
     | '__root__'
     | '/'
     | '/ar-aging'
+    | '/customers'
     | '/design-comparison'
     | '/invoices'
     | '/orders'
+    | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ArAgingRoute: typeof ArAgingRoute
+  CustomersRoute: typeof CustomersRoute
   DesignComparisonRoute: typeof DesignComparisonRoute
   InvoicesRoute: typeof InvoicesRoute
   OrdersRoute: typeof OrdersRoute
+  SettingsRoute: typeof SettingsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/ar-aging'
       fullPath: '/ar-aging'
       preLoaderRoute: typeof ArAgingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customers': {
+      id: '/customers'
+      path: '/customers'
+      fullPath: '/customers'
+      preLoaderRoute: typeof CustomersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/design-comparison': {
@@ -122,15 +165,24 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ArAgingRoute: ArAgingRoute,
+  CustomersRoute: CustomersRoute,
   DesignComparisonRoute: DesignComparisonRoute,
   InvoicesRoute: InvoicesRoute,
   OrdersRoute: OrdersRoute,
+  SettingsRoute: SettingsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
