@@ -11,5 +11,6 @@
 - [x] Verify actual 1440/768/390/320 rendering, drawer containment, aging drill-down, role/FY persistence, separate searches, pagination, unavailable feedback and preview states; browser reports no runtime errors.
 - [x] Present preview and validation for approval; no production integration or publication.
 - [x] Phase 3 seven-stage implementation plan approved; preserve the plan and existing implementation unchanged.
-- [ ] Stage 0 implementation awaits explicit implementation authorization; plan approval alone does not authorize building.
+- [ ] Stage 0 authorized: implement contract register, isolated demo snapshots/adapters, scenario selection/reset and review-confirm-result foundation.
+- [ ] Stage 0: add regression coverage and verify actual desktop/mobile rendering; present results and unresolved contract gaps.
 - [ ] Subsequent Phase 3 stages await their defined approval checkpoints; backend integration and publication remain separately unauthorized.
