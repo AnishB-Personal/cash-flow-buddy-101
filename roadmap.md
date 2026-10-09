@@ -1,4 +1,8 @@
-# CollectFlow selected UI refinement
+# CollectFlow final aging date correction
+- [ ] Replace hardcoded aging membership with shared explicit reporting-date rules and normalize six fixture categories.
+- [ ] Surface the reporting date and consistent overdue days across dashboard, aging results, invoices, details and reference comparison without redesign.
+- [ ] Add date-boundary, exclusion, drill-down, financial-preservation and UI consistency regression tests.
+- [ ] Verify frontend tests, automated build/type checks and actual desktop/tablet/mobile rendering; report for final approval.
 - [x] Preserve A/B/C reference at /design-comparison and create the selected B application shell.
 - [x] Implement consistent dashboard, distinct orders/invoices, search, filters, and contained details.
 - [x] Preserve deferred features and verified role permissions without pretending backend actions work.

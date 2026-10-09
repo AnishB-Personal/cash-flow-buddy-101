@@ -13,7 +13,7 @@
 - Keep financial mock fixtures shared across all three design compositions so comparisons use identical facts without a financial calculation engine.
 - Use concept-scoped semantic CSS tokens and distinct dashboard layouts, with shared interaction logic for consistent comparison behavior.
 - Keep the selected workspace and archived comparison in separate component trees; the comparison remains reachable at /design-comparison so design references are not overwritten.
-- Use reusable document selectors, listings and contextual drawers for the selected workspace; all amounts originate in sanitized fixtures and aging membership uses the supplied snapshot, not current-date recalculation.
+- Use reusable document selectors, listings and contextual drawers; classify receivables through the shared explicit-reporting-date helper and aggregate supplied amounts only, so dashboard totals and drill-down records agree without a financial engine or viewer-clock dependency.
 - Keep implemented financial screens in distinct TanStack content routes and deferred modules explicitly identified; this preserves navigable integration boundaries without pretending unfinished workflows are complete.
 - Use an explicit optional portal container for embedded preview overlays; mobile drawers must scroll inside their own viewport instead of inheriting desktop positioning.
 - Match mock role visibility to verified FastAPI permissions; sales may read all records but only finance/admin may edit, convert, cancel or record payments.
