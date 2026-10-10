@@ -12,6 +12,10 @@ describe("App routing", () => {
     const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
     expect(router.matchRoutes('/payments').at(-1)?.routeId).toBe('/payments');
   });
+  it('matches Sales Targets route', () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+    expect(router.matchRoutes('/sales-targets').at(-1)?.routeId).toBe('/sales-targets');
+  });
   it("matches a page for / instead of falling back to not found", () => {
     const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
 

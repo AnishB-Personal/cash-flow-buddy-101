@@ -1,7 +1,7 @@
 import { data, asOfDate, type Invoice } from './collectflow';
 import { classifyAging, issuedRecord, receivableRecord, summarizeAging, agingDateLabel } from './reporting';
 export type Role = 'admin' | 'finance' | 'sales' | 'viewer';
-export type Screen = 'Dashboard' | 'Orders' | 'Invoices' | 'Payments' | 'AR Aging' | 'Customers' | 'Settings';
+export type Screen = 'Dashboard' | 'Orders' | 'Invoices' | 'Payments' | 'AR Aging' | 'Customers' | 'Settings' | 'Sales Targets';
 export const issued = issuedRecord;
 export const isReceivable = receivableRecord;
 export const invoiceAging = (row: Invoice, referenceDate = asOfDate) => classifyAging(row, referenceDate).bucket;

@@ -16,6 +16,7 @@ import { Route as DesignComparisonRouteImport } from './routes/design-comparison
 import { Route as InvoicesRouteImport } from './routes/invoices'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as PaymentsRouteImport } from './routes/payments'
+import { Route as SalesTargetsRouteImport } from './routes/sales-targets'
 import { Route as SettingsRouteImport } from './routes/settings'
 
 const IndexRoute = IndexRouteImport.update({
@@ -53,6 +54,11 @@ const PaymentsRoute = PaymentsRouteImport.update({
   path: '/payments',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SalesTargetsRoute = SalesTargetsRouteImport.update({
+  id: '/sales-targets',
+  path: '/sales-targets',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -67,6 +73,7 @@ export interface FileRoutesByFullPath {
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
+  '/sales-targets': typeof SalesTargetsRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
@@ -77,6 +84,7 @@ export interface FileRoutesByTo {
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
+  '/sales-targets': typeof SalesTargetsRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
@@ -88,6 +96,7 @@ export interface FileRoutesById {
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
+  '/sales-targets': typeof SalesTargetsRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
@@ -100,6 +109,7 @@ export interface FileRouteTypes {
     | '/invoices'
     | '/orders'
     | '/payments'
+    | '/sales-targets'
     | '/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -110,6 +120,7 @@ export interface FileRouteTypes {
     | '/invoices'
     | '/orders'
     | '/payments'
+    | '/sales-targets'
     | '/settings'
   id:
     | '__root__'
@@ -120,6 +131,7 @@ export interface FileRouteTypes {
     | '/invoices'
     | '/orders'
     | '/payments'
+    | '/sales-targets'
     | '/settings'
   fileRoutesById: FileRoutesById
 }
@@ -131,6 +143,7 @@ export interface RootRouteChildren {
   InvoicesRoute: typeof InvoicesRoute
   OrdersRoute: typeof OrdersRoute
   PaymentsRoute: typeof PaymentsRoute
+  SalesTargetsRoute: typeof SalesTargetsRoute
   SettingsRoute: typeof SettingsRoute
 }
 
@@ -185,6 +198,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PaymentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sales-targets': {
+      id: '/sales-targets'
+      path: '/sales-targets'
+      fullPath: '/sales-targets'
+      preLoaderRoute: typeof SalesTargetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -203,6 +223,7 @@ const rootRouteChildren: RootRouteChildren = {
   InvoicesRoute: InvoicesRoute,
   OrdersRoute: OrdersRoute,
   PaymentsRoute: PaymentsRoute,
+  SalesTargetsRoute: SalesTargetsRoute,
   SettingsRoute: SettingsRoute,
 }
 export const routeTree = rootRouteImport

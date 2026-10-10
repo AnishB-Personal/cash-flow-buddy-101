@@ -4,6 +4,14 @@ import { createDemoAdapter, readDemoSnapshot, type DemoSnapshot, type ScenarioId
 import { readReferences, createReferenceAdapter, type References, type ReferenceReview } from '@/data/references';
 import { createOrderAdapter, type OrderReview } from '@/data/orders';
 import { createPaymentAdapter, type PaymentReview, type InvoiceCancelInput } from '@/data/payments';
+import {
+  createTargetAdapter,
+  readInitialTargets,
+  type SalesTarget,
+  type TargetAdapter,
+  type TargetReview,
+  type TargetUpdateInput,
+} from '@/data/targets';
 
 type Session = {
   role: Role;
@@ -22,6 +30,9 @@ type Session = {
   confirmPayment: (review: PaymentReview) => Promise<void>;
   deletePayment: (paymentId: number) => Promise<void>;
   cancelInvoice: (input: InvoiceCancelInput) => Promise<void>;
+  targets: SalesTarget[];
+  targetAdapter: TargetAdapter & { current: TargetAdapter };
+  confirmTarget: (reviewOrInput: TargetReview | TargetUpdateInput) => Promise<SalesTarget>;
   mobile: boolean;
   setMobile: (value: boolean) => void;
 };
@@ -46,6 +57,8 @@ export function MockSessionProvider({
   const referenceAdapter = useRef(createReferenceAdapter());
   const orderAdapter = useRef(createOrderAdapter());
   const paymentAdapter = useRef(createPaymentAdapter());
+  const [targets, setTargets] = useState(readInitialTargets);
+  const targetAdapter = useRef(createTargetAdapter());
 
   const current = useRef({ role, fy, scenario, revision, references });
   current.current = { role, fy, scenario, revision, references };
@@ -55,6 +68,8 @@ export function MockSessionProvider({
     referenceAdapter.current.reset();
     orderAdapter.current.reset();
     paymentAdapter.current.reset();
+    targetAdapter.current.reset();
+    setTargets(targetAdapter.current.listTargets());
     const restored = readReferences();
     current.current = { ...current.current, scenario: value, references: restored, revision: current.current.revision + 1 };
     setReferences(restored);
@@ -142,6 +157,36 @@ export function MockSessionProvider({
     setRevision(val => val + 1);
   }
 
+  async function confirmTarget(reviewOrInput: TargetReview | TargetUpdateInput): Promise<SalesTarget> {
+    const context = current.current;
+    if (context.role !== 'admin' && context.role !== 'finance') {
+      throw new Error(`Access forbidden: role '${context.role}' lacks required permissions (admin, finance)`);
+    }
+    const input: TargetUpdateInput =
+      'target' in reviewOrInput
+        ? {
+            user_id: reviewOrInput.target.user_id,
+            fy_code: reviewOrInput.target.fy_code,
+            yearly_target: reviewOrInput.target.yearly_target,
+            half_yearly_target: reviewOrInput.target.half_yearly_target,
+            quarterly_target: reviewOrInput.target.quarterly_target,
+            monthly_target: reviewOrInput.target.monthly_target,
+            monthly_bottom_line: reviewOrInput.target.monthly_bottom_line,
+            yearly_bottom_line: reviewOrInput.target.yearly_bottom_line,
+          }
+        : reviewOrInput;
+
+    const result = targetAdapter.current.upsertTarget(input);
+    if (current.current.revision !== context.revision || current.current.role !== context.role || current.current.fy !== context.fy) {
+      throw new Error('Context changed. No changes applied.');
+    }
+    const nextTargets = targetAdapter.current.listTargets();
+    current.current = { ...context, revision: context.revision + 1 };
+    setTargets(nextTargets);
+    setRevision(val => val + 1);
+    return result;
+  }
+
   return (
     <SessionContext.Provider
       value={{
@@ -161,6 +206,9 @@ export function MockSessionProvider({
         confirmPayment,
         deletePayment,
         cancelInvoice,
+        targets,
+        targetAdapter: targetAdapter.current as TargetAdapter & { current: TargetAdapter },
+        confirmTarget,
         mobile,
         setMobile,
       }}
