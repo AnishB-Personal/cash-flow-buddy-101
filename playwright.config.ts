@@ -21,6 +21,12 @@ export default defineConfig({
     video: 'off',
     screenshot: 'only-on-failure',
   },
+  webServer: {
+    command: 'npm run dev -- --port 3000',
+    url: 'http://127.0.0.1:3000',
+    reuseExistingServer: true,
+    timeout: 60000,
+  },
   projects: [
     {
       name: 'chromium',

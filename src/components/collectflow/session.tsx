@@ -3,6 +3,7 @@ import type { Role } from '@/data/records';
 import { createDemoAdapter, readDemoSnapshot, type DemoSnapshot, type ScenarioId, type DemoReview, type DemoResult } from '@/data/demo';
 import { readReferences, createReferenceAdapter, type References, type ReferenceReview } from '@/data/references';
 import { createOrderAdapter, type OrderReview } from '@/data/orders';
+import { createPaymentAdapter, type PaymentReview, type InvoiceCancelInput } from '@/data/payments';
 
 type Session = {
   role: Role;
@@ -18,6 +19,9 @@ type Session = {
   references: References;
   confirmReference: (review: ReferenceReview) => Promise<void>;
   confirmOrder: (review: OrderReview) => Promise<void>;
+  confirmPayment: (review: PaymentReview) => Promise<void>;
+  deletePayment: (paymentId: number) => Promise<void>;
+  cancelInvoice: (input: InvoiceCancelInput) => Promise<void>;
 };
 
 const SessionContext = createContext<Session | null>(null);
@@ -32,6 +36,7 @@ export function MockSessionProvider({ children }: { children: ReactNode }) {
   const [references, setReferences] = useState(readReferences);
   const referenceAdapter = useRef(createReferenceAdapter());
   const orderAdapter = useRef(createOrderAdapter());
+  const paymentAdapter = useRef(createPaymentAdapter());
 
   const current = useRef({ role, fy, scenario, revision, references });
   current.current = { role, fy, scenario, revision, references };
@@ -40,6 +45,7 @@ export function MockSessionProvider({ children }: { children: ReactNode }) {
     adapter.current.reset();
     referenceAdapter.current.reset();
     orderAdapter.current.reset();
+    paymentAdapter.current.reset();
     const restored = readReferences();
     current.current = { ...current.current, scenario: value, references: restored, revision: current.current.revision + 1 };
     setReferences(restored);
@@ -91,6 +97,42 @@ export function MockSessionProvider({ children }: { children: ReactNode }) {
     setRevision(val => val + 1);
   }
 
+  async function confirmPayment(review: PaymentReview) {
+    const context = current.current;
+    const result = await paymentAdapter.current.confirm(review, context.role, demo.invoices);
+    if (current.current.revision !== context.revision || current.current.role !== context.role || current.current.fy !== context.fy) {
+      throw new Error('Context changed. No changes applied.');
+    }
+    const nextDemo = { ...demo, invoices: result };
+    current.current = { ...context, revision: context.revision + 1 };
+    setDemo(nextDemo);
+    setRevision(val => val + 1);
+  }
+
+  async function deletePayment(paymentId: number) {
+    const context = current.current;
+    const result = paymentAdapter.current.deletePayment(paymentId, demo.invoices, context.role);
+    if (current.current.revision !== context.revision || current.current.role !== context.role || current.current.fy !== context.fy) {
+      throw new Error('Context changed. No changes applied.');
+    }
+    const nextDemo = { ...demo, invoices: result };
+    current.current = { ...context, revision: context.revision + 1 };
+    setDemo(nextDemo);
+    setRevision(val => val + 1);
+  }
+
+  async function cancelInvoice(input: InvoiceCancelInput) {
+    const context = current.current;
+    const result = paymentAdapter.current.cancelInvoice(input, demo.invoices, context.role);
+    if (current.current.revision !== context.revision || current.current.role !== context.role || current.current.fy !== context.fy) {
+      throw new Error('Context changed. No changes applied.');
+    }
+    const nextDemo = { ...demo, invoices: result };
+    current.current = { ...context, revision: context.revision + 1 };
+    setDemo(nextDemo);
+    setRevision(val => val + 1);
+  }
+
   return (
     <SessionContext.Provider
       value={{
@@ -107,6 +149,9 @@ export function MockSessionProvider({ children }: { children: ReactNode }) {
         references,
         confirmReference,
         confirmOrder,
+        confirmPayment,
+        deletePayment,
+        cancelInvoice,
       }}
     >
       {children}

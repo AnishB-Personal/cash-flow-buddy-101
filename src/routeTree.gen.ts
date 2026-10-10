@@ -15,6 +15,7 @@ import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as DesignComparisonRouteImport } from './routes/design-comparison'
 import { Route as InvoicesRouteImport } from './routes/invoices'
 import { Route as OrdersRouteImport } from './routes/orders'
+import { Route as PaymentsRouteImport } from './routes/payments'
 import { Route as SettingsRouteImport } from './routes/settings'
 
 const IndexRoute = IndexRouteImport.update({
@@ -47,6 +48,11 @@ const OrdersRoute = OrdersRouteImport.update({
   path: '/orders',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PaymentsRoute = PaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -60,6 +66,7 @@ export interface FileRoutesByFullPath {
   '/design-comparison': typeof DesignComparisonRoute
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
+  '/payments': typeof PaymentsRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
@@ -69,6 +76,7 @@ export interface FileRoutesByTo {
   '/design-comparison': typeof DesignComparisonRoute
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
+  '/payments': typeof PaymentsRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
@@ -79,6 +87,7 @@ export interface FileRoutesById {
   '/design-comparison': typeof DesignComparisonRoute
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
+  '/payments': typeof PaymentsRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
@@ -90,6 +99,7 @@ export interface FileRouteTypes {
     | '/design-comparison'
     | '/invoices'
     | '/orders'
+    | '/payments'
     | '/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -99,6 +109,7 @@ export interface FileRouteTypes {
     | '/design-comparison'
     | '/invoices'
     | '/orders'
+    | '/payments'
     | '/settings'
   id:
     | '__root__'
@@ -108,6 +119,7 @@ export interface FileRouteTypes {
     | '/design-comparison'
     | '/invoices'
     | '/orders'
+    | '/payments'
     | '/settings'
   fileRoutesById: FileRoutesById
 }
@@ -118,6 +130,7 @@ export interface RootRouteChildren {
   DesignComparisonRoute: typeof DesignComparisonRoute
   InvoicesRoute: typeof InvoicesRoute
   OrdersRoute: typeof OrdersRoute
+  PaymentsRoute: typeof PaymentsRoute
   SettingsRoute: typeof SettingsRoute
 }
 
@@ -165,6 +178,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/payments': {
+      id: '/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof PaymentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -182,6 +202,7 @@ const rootRouteChildren: RootRouteChildren = {
   DesignComparisonRoute: DesignComparisonRoute,
   InvoicesRoute: InvoicesRoute,
   OrdersRoute: OrdersRoute,
+  PaymentsRoute: PaymentsRoute,
   SettingsRoute: SettingsRoute,
 }
 export const routeTree = rootRouteImport
