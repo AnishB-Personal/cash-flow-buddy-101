@@ -301,7 +301,7 @@ export function CancelInvoiceDrawer({
                         color: 'var(--muted-foreground)',
                       }}
                     >
-                      <span>Reason will be recorded in backend audit logs and appended to remarks.</span>
+                      <span>Simulated audit trail: reason will be appended to invoice remarks in demo state (no real API call is made).</span>
                       <span>{reason.length} / 500 characters</span>
                     </div>
                   </div>

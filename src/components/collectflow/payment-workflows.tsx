@@ -593,6 +593,8 @@ export function PaymentCorrectionDrawer({
 
   // Calculation for Step 1
   const balanceAfterDeletion = roundCurrency(currentInvoice.outstanding_balance + payment.net_settled);
+  const survivingPaidAfterDeletion = roundCurrency(currentInvoice.total_amount - balanceAfterDeletion);
+  const projectedStatusAfterDeletion = survivingPaidAfterDeletion > 0 ? 'PARTIAL' : 'PENDING';
 
   function requestClose() {
     if (pending) return;
@@ -740,7 +742,7 @@ export function PaymentCorrectionDrawer({
                       Non-Atomic Administrative Sequence
                     </strong>
                     <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: 'var(--muted-foreground)' }}>
-                      The FastAPI backend performs corrections in two discrete operations: physically deleting the payment record (<code>DELETE /api/payments/{'{id}'}</code>) and logging an audit event, followed by an independent creation request (<code>POST /api/payments</code>). This is NOT an atomic accounting reversal. Payment #{payment.id} will be permanently removed from the ledger.
+                      This simulation reflects FastAPI backend behavior using two discrete non-atomic operations: physically deleting the payment record (simulating <code>DELETE /api/payments/{'{id}'}</code>) and recreating a replacement record (simulating <code>POST /api/payments</code>). No real API calls are executed and audit data is not durably persisted. This is NOT an atomic accounting reversal. Payment #{payment.id} will be removed from the demo ledger.
                     </p>
                   </div>
                 </div>
@@ -789,7 +791,7 @@ export function PaymentCorrectionDrawer({
                     </div>
                     <div>
                       <dt>Projected invoice status</dt>
-                      <dd>PENDING</dd>
+                      <dd>{projectedStatusAfterDeletion}</dd>
                     </div>
                   </dl>
                 </FormSection>
@@ -1131,48 +1133,16 @@ export function PaymentCorrectionDrawer({
                 {/* Diff View */}
                 <FormSection title="Balance impact after replacement">
                   <dl className="cf-change-list">
-                    <div className="cf-change-row">
-                      <dt>Cash Collected</dt>
-                      <dd>
-                        <span className="cf-change-prev">₹0.00</span>
-                        <span className="cf-change-arrow" aria-hidden="true">→</span>
-                        <strong className="cf-change-curr">+{exactMoney(cash)}</strong>
-                      </dd>
-                    </div>
-                    {tds > 0 && (
-                      <div className="cf-change-row">
-                        <dt>TDS Recognized</dt>
+                    {review.changes.map(chg => (
+                      <div key={chg.field} className="cf-change-row">
+                        <dt>{chg.label}</dt>
                         <dd>
-                          <span className="cf-change-prev">₹0.00</span>
+                          <span className="cf-change-prev">{chg.previous}</span>
                           <span className="cf-change-arrow" aria-hidden="true">→</span>
-                          <strong className="cf-change-curr">+{exactMoney(tds)}</strong>
+                          <strong className="cf-change-curr">{chg.current}</strong>
                         </dd>
                       </div>
-                    )}
-                    <div className="cf-change-row">
-                      <dt>Total Settled</dt>
-                      <dd>
-                        <span className="cf-change-prev">₹0.00</span>
-                        <span className="cf-change-arrow" aria-hidden="true">→</span>
-                        <strong className="cf-change-curr">+{exactMoney(totalSettling)}</strong>
-                      </dd>
-                    </div>
-                    <div className="cf-change-row">
-                      <dt>Outstanding Balance</dt>
-                      <dd>
-                        <span className="cf-change-prev">{exactMoney(updatedOutstanding)}</span>
-                        <span className="cf-change-arrow" aria-hidden="true">→</span>
-                        <strong className="cf-change-curr">{exactMoney(review.resulting_outstanding)}</strong>
-                      </dd>
-                    </div>
-                    <div className="cf-change-row">
-                      <dt>Invoice Status</dt>
-                      <dd>
-                        <span className="cf-change-prev">PENDING</span>
-                        <span className="cf-change-arrow" aria-hidden="true">→</span>
-                        <strong className="cf-change-curr">{review.resulting_status}</strong>
-                      </dd>
-                    </div>
+                    ))}
                   </dl>
                 </FormSection>
 

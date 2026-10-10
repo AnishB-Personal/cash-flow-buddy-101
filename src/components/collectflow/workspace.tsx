@@ -30,12 +30,19 @@ export function Workspace({ initial = 'Dashboard' }: { initial?: Screen }) {
  const [correctionPayment, setCorrectionPayment] = useState<PaymentItem|null>(null);
  const isModalOpen = Boolean(record || orderOp || paymentInvoice || cancelInvoice || correctionPayment || searchOpen);
  useEffect(() => {
-  if (!isModalOpen || mobile) return;
-  document.body.classList.add('cf-scroll-locked');
-  return () => {
-   document.body.classList.remove('cf-scroll-locked');
-  };
- }, [isModalOpen, mobile]);
+  if (!isModalOpen) return undefined;
+  if (mobile && frame) {
+   frame.scrollTop = 0;
+   return undefined;
+  }
+  if (!mobile) {
+   document.body.classList.add('cf-scroll-locked');
+   return () => {
+    document.body.classList.remove('cf-scroll-locked');
+   };
+  }
+  return undefined;
+ }, [isModalOpen, mobile, frame]);
  const denied = state==='Permission denied' || (page==='Users & Roles' && role!=='admin');
  function navigate(name: string) { setMenu(false);setBucket(null);setState('Live'); if(name==='Dashboard'){setDeferredPage(null);void routerNavigate({to:'/'});}else if(name==='Orders'){setDeferredPage(null);void routerNavigate({to:'/orders'});}else if(name==='Invoices'){setDeferredPage(null);void routerNavigate({to:'/invoices'});}else if(name==='Payments'){setDeferredPage(null);void routerNavigate({to:'/payments'});}else if(name==='AR Aging'){setDeferredPage(null);void routerNavigate({to:'/ar-aging'});}else if(name==='Customers'){setDeferredPage(null);void routerNavigate({to:'/customers'});}else if(name==='Settings'){setDeferredPage(null);void routerNavigate({to:'/settings'});}else setDeferredPage(name); }
  function open(row: Invoice, type: 'order'|'invoice') {setKind(type);setRecord(row);setSearchOpen(false);}

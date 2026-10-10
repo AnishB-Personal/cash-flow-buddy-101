@@ -343,7 +343,7 @@ export function PaymentsLedger({
                                 else if (unavailable) unavailable('Administrative Payment Correction');
                               }}
                             >
-                              Correct / Reverse Payment · Admin
+                              Correct / Reverse Payment
                             </Button>
                           )}
                         </div>
