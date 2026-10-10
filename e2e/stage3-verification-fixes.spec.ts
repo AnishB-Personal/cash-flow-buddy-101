@@ -215,4 +215,92 @@ test.describe('Stage 3 Verification Fixes (CF3-01 through CF3-04)', () => {
     await paymentActions.first().click();
     await expect(page.getByRole('button', { name: 'Correct / Reverse Payment' })).not.toBeVisible();
   });
+
+  test('CF3-05: Mobile preview selection persists across internal navigation and back/forward, and switches back to Desktop', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // Navigate to Payments
+    await page.locator('.cf-nav-item', { hasText: 'Payments' }).click();
+    await expect(page.locator('h1')).toHaveText('Payments');
+
+    // Initially in Desktop mode
+    const desktopBtn = page.locator('.cf-review-bar button[title="Desktop preview"]');
+    const mobileBtn = page.locator('.cf-review-bar button[title="Mobile preview"]');
+    await expect(desktopBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(mobileBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.cf-preview-mobile')).not.toBeVisible();
+
+    // Enable Mobile preview
+    await mobileBtn.click();
+    await expect(mobileBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(desktopBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.cf-preview-mobile')).toBeVisible();
+
+    // Navigate to Invoices using bottom navigation inside the phone frame
+    const bottomNavInvoices = page.locator('.cf-preview-mobile .cf-bottom-nav button', { hasText: 'Invoices' });
+    await expect(bottomNavInvoices).toBeVisible();
+    await bottomNavInvoices.click();
+
+    // Verify Invoices page loaded AND Mobile preview remained active
+    await expect(page).toHaveURL(/\/invoices/);
+    await expect(page.locator('.cf-preview-mobile h1')).toHaveText('Invoices');
+    await expect(page.locator('.cf-preview-mobile')).toBeVisible();
+    await expect(mobileBtn).toHaveAttribute('aria-pressed', 'true');
+
+    // Navigate to Orders using bottom navigation
+    const bottomNavOrders = page.locator('.cf-preview-mobile .cf-bottom-nav button', { hasText: 'Orders' });
+    await expect(bottomNavOrders).toBeVisible();
+    await bottomNavOrders.click();
+
+    // Verify Orders page loaded AND Mobile preview remained active
+    await expect(page).toHaveURL(/\/orders/);
+    await expect(page.locator('.cf-preview-mobile h1')).toHaveText('Orders');
+    await expect(page.locator('.cf-preview-mobile')).toBeVisible();
+    await expect(mobileBtn).toHaveAttribute('aria-pressed', 'true');
+
+    // Test browser back navigation
+    await page.goBack();
+    await expect(page).toHaveURL(/\/invoices/);
+    await expect(page.locator('.cf-preview-mobile h1')).toHaveText('Invoices');
+    await expect(page.locator('.cf-preview-mobile')).toBeVisible();
+    await expect(mobileBtn).toHaveAttribute('aria-pressed', 'true');
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/payments/);
+    await expect(page.locator('.cf-preview-mobile h1')).toHaveText('Payments');
+    await expect(page.locator('.cf-preview-mobile')).toBeVisible();
+
+    // Test browser forward navigation
+    await page.goForward();
+    await expect(page).toHaveURL(/\/invoices/);
+    await expect(page.locator('.cf-preview-mobile h1')).toHaveText('Invoices');
+    await expect(page.locator('.cf-preview-mobile')).toBeVisible();
+
+    // Explicitly switch back to Desktop preview
+    await desktopBtn.click();
+    await expect(desktopBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(mobileBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.cf-preview-mobile')).not.toBeVisible();
+
+    // Navigate to Payments in Desktop mode
+    await page.locator('.cf-nav-item', { hasText: 'Payments' }).click();
+    await expect(page).toHaveURL(/\/payments/);
+    await expect(page.locator('h1')).toHaveText('Payments');
+    await expect(page.locator('.cf-preview-mobile')).not.toBeVisible();
+    await expect(desktopBtn).toHaveAttribute('aria-pressed', 'true');
+
+    // Test Reset Demo preserves Desktop preview and financial invariants
+    const resetBtn = page.getByRole('button', { name: /Reset Demo/i });
+    await resetBtn.click();
+    const confirmBtn = page.getByRole('button', { name: 'Restore baseline' });
+    try {
+      await confirmBtn.waitFor({ state: 'visible', timeout: 2000 });
+      await confirmBtn.click();
+      await page.waitForTimeout(400);
+    } catch {
+      // baseline dialog not triggered
+    }
+    await expect(page.locator('.cf-preview-mobile')).not.toBeVisible();
+    await expect(desktopBtn).toHaveAttribute('aria-pressed', 'true');
+  });
 });

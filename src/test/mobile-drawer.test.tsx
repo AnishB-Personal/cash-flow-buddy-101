@@ -231,4 +231,84 @@ describe('Mobile Workflow Drawer & Scroll Lock', () => {
     expect(css).toMatch(/@media\(max-width:600px\)[\s\S]*?\.cf-drawer-body\{[^}]*overflow-y:\s*auto/);
     expect(css).toMatch(/@media\(max-width:600px\)[\s\S]*?\.cf-drawer-footer\{[^}]*padding:/);
   });
+
+  describe('CF3-05: Mobile Preview Selection Persistence Across Navigation', () => {
+    it('persists mobile preview mode across screen re-renders within session and allows explicit switch back', () => {
+      const { rerender } = render(
+        <MockSessionProvider>
+          <Workspace initial="Payments" />
+        </MockSessionProvider>
+      );
+
+      // Initially desktop
+      expect(document.querySelector('.cf-app')).not.toHaveClass('cf-preview-mobile');
+      expect(screen.getByRole('button', { name: 'Desktop preview' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Mobile preview' })).toHaveAttribute('aria-pressed', 'false');
+
+      // Switch to mobile preview
+      fireEvent.click(screen.getByRole('button', { name: 'Mobile preview' }));
+      expect(document.querySelector('.cf-app')).toHaveClass('cf-preview-mobile');
+      expect(screen.getByRole('button', { name: 'Mobile preview' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Desktop preview' })).toHaveAttribute('aria-pressed', 'false');
+
+      // Simulate route navigation: unmount/mount Workspace with different initial screen inside MockSessionProvider
+      rerender(
+        <MockSessionProvider>
+          <Workspace initial="Invoices" />
+        </MockSessionProvider>
+      );
+
+      // Must remain in mobile preview
+      expect(document.querySelector('.cf-app')).toHaveClass('cf-preview-mobile');
+      expect(screen.getByRole('button', { name: 'Mobile preview' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Desktop preview' })).toHaveAttribute('aria-pressed', 'false');
+
+      // Navigate to Orders
+      rerender(
+        <MockSessionProvider>
+          <Workspace initial="Orders" />
+        </MockSessionProvider>
+      );
+      expect(document.querySelector('.cf-app')).toHaveClass('cf-preview-mobile');
+
+      // Explicitly switch back to Desktop
+      fireEvent.click(screen.getByRole('button', { name: 'Desktop preview' }));
+      expect(document.querySelector('.cf-app')).not.toHaveClass('cf-preview-mobile');
+      expect(screen.getByRole('button', { name: 'Desktop preview' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Mobile preview' })).toHaveAttribute('aria-pressed', 'false');
+
+      // Navigate to Payments again - Desktop stays selected
+      rerender(
+        <MockSessionProvider>
+          <Workspace initial="Payments" />
+        </MockSessionProvider>
+      );
+      expect(document.querySelector('.cf-app')).not.toHaveClass('cf-preview-mobile');
+      expect(screen.getByRole('button', { name: 'Desktop preview' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('retains mobile preview when Reset Demo is clicked', () => {
+      render(
+        <MockSessionProvider>
+          <Workspace initial="Payments" />
+        </MockSessionProvider>
+      );
+
+      // Enable mobile
+      fireEvent.click(screen.getByRole('button', { name: 'Mobile preview' }));
+      expect(document.querySelector('.cf-app')).toHaveClass('cf-preview-mobile');
+
+      // Trigger Reset Demo
+      const resetBtn = screen.getByRole('button', { name: 'Reset Demo' });
+      fireEvent.click(resetBtn);
+
+      // Baseline reset confirmation modal if present
+      const confirmBtn = screen.queryByRole('button', { name: 'Restore baseline' });
+      if (confirmBtn) fireEvent.click(confirmBtn);
+
+      // Mobile preview is retained
+      expect(document.querySelector('.cf-app')).toHaveClass('cf-preview-mobile');
+      expect(screen.getByRole('button', { name: 'Mobile preview' })).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
 });

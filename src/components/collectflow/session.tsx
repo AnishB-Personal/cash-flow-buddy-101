@@ -22,16 +22,25 @@ type Session = {
   confirmPayment: (review: PaymentReview) => Promise<void>;
   deletePayment: (paymentId: number) => Promise<void>;
   cancelInvoice: (input: InvoiceCancelInput) => Promise<void>;
+  mobile: boolean;
+  setMobile: (value: boolean) => void;
 };
 
 const SessionContext = createContext<Session | null>(null);
 
-export function MockSessionProvider({ children }: { children: ReactNode }) {
+export function MockSessionProvider({
+  children,
+  initialMobile = false,
+}: {
+  children: ReactNode;
+  initialMobile?: boolean;
+}) {
   const [role, setRole] = useState<Role>('finance');
   const [fy, setFy] = useState('FY 2026-27');
   const [scenario, setScenario] = useState<ScenarioId>('baseline');
   const [demo, setDemo] = useState(readDemoSnapshot);
   const [revision, setRevision] = useState(0);
+  const [mobile, setMobile] = useState(initialMobile);
   const adapter = useRef(createDemoAdapter());
   const [references, setReferences] = useState(readReferences);
   const referenceAdapter = useRef(createReferenceAdapter());
@@ -152,6 +161,8 @@ export function MockSessionProvider({ children }: { children: ReactNode }) {
         confirmPayment,
         deletePayment,
         cancelInvoice,
+        mobile,
+        setMobile,
       }}
     >
       {children}
