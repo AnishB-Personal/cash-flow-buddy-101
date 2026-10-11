@@ -17,6 +17,7 @@ import { Route as InvoicesRouteImport } from './routes/invoices'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as PaymentsRouteImport } from './routes/payments'
 import { Route as PerformanceAnalyticsRouteImport } from './routes/performance-analytics'
+import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SalesTargetsRouteImport } from './routes/sales-targets'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as UsersRouteImport } from './routes/users'
@@ -61,6 +62,11 @@ const PerformanceAnalyticsRoute = PerformanceAnalyticsRouteImport.update({
   path: '/performance-analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReportsRoute = ReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SalesTargetsRoute = SalesTargetsRouteImport.update({
   id: '/sales-targets',
   path: '/sales-targets',
@@ -86,6 +92,7 @@ export interface FileRoutesByFullPath {
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
   '/performance-analytics': typeof PerformanceAnalyticsRoute
+  '/reports': typeof ReportsRoute
   '/sales-targets': typeof SalesTargetsRoute
   '/settings': typeof SettingsRoute
   '/users': typeof UsersRoute
@@ -99,6 +106,7 @@ export interface FileRoutesByTo {
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
   '/performance-analytics': typeof PerformanceAnalyticsRoute
+  '/reports': typeof ReportsRoute
   '/sales-targets': typeof SalesTargetsRoute
   '/settings': typeof SettingsRoute
   '/users': typeof UsersRoute
@@ -113,6 +121,7 @@ export interface FileRoutesById {
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
   '/performance-analytics': typeof PerformanceAnalyticsRoute
+  '/reports': typeof ReportsRoute
   '/sales-targets': typeof SalesTargetsRoute
   '/settings': typeof SettingsRoute
   '/users': typeof UsersRoute
@@ -128,6 +137,7 @@ export interface FileRouteTypes {
     | '/orders'
     | '/payments'
     | '/performance-analytics'
+    | '/reports'
     | '/sales-targets'
     | '/settings'
     | '/users'
@@ -141,6 +151,7 @@ export interface FileRouteTypes {
     | '/orders'
     | '/payments'
     | '/performance-analytics'
+    | '/reports'
     | '/sales-targets'
     | '/settings'
     | '/users'
@@ -154,6 +165,7 @@ export interface FileRouteTypes {
     | '/orders'
     | '/payments'
     | '/performance-analytics'
+    | '/reports'
     | '/sales-targets'
     | '/settings'
     | '/users'
@@ -168,6 +180,7 @@ export interface RootRouteChildren {
   OrdersRoute: typeof OrdersRoute
   PaymentsRoute: typeof PaymentsRoute
   PerformanceAnalyticsRoute: typeof PerformanceAnalyticsRoute
+  ReportsRoute: typeof ReportsRoute
   SalesTargetsRoute: typeof SalesTargetsRoute
   SettingsRoute: typeof SettingsRoute
   UsersRoute: typeof UsersRoute
@@ -231,6 +244,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PerformanceAnalyticsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/reports': {
+      id: '/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof ReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sales-targets': {
       id: '/sales-targets'
       path: '/sales-targets'
@@ -264,6 +284,7 @@ const rootRouteChildren: RootRouteChildren = {
   OrdersRoute: OrdersRoute,
   PaymentsRoute: PaymentsRoute,
   PerformanceAnalyticsRoute: PerformanceAnalyticsRoute,
+  ReportsRoute: ReportsRoute,
   SalesTargetsRoute: SalesTargetsRoute,
   SettingsRoute: SettingsRoute,
   UsersRoute: UsersRoute,
