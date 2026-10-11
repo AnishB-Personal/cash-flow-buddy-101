@@ -485,6 +485,25 @@ describe('Stage 5 — User Management & RBAC Data Layer (Unit Tests)', () => {
         expect(adapter.getUser(3)).toBeDefined();
       });
 
+      it('safeguards financial integrity: user with invoices (Neha Rao id:3) is blocked, user with targets (Arjun Mehta id:5) deletes and cascades targets', () => {
+        // User with invoices: BLOCKED
+        const blockedVal = adapter.validateDelete(3, adapter.listUsers(), invoices, 1);
+        expect(blockedVal.valid).toBe(false);
+        expect(blockedVal.error).toContain("referenced as sales representative on 1 invoice(s)");
+        expect(adapter.getUser(3)).toBeDefined();
+
+        // User without invoices but with targets (Arjun Mehta id:5): PERMITTED
+        const allowedVal = adapter.validateDelete(5, adapter.listUsers(), invoices, 1);
+        expect(allowedVal.valid).toBe(true);
+        expect(allowedVal.error).toBeUndefined();
+
+        // Perform deletion of Arjun Mehta
+        const deleted = adapter.deleteUser(5);
+        expect(deleted).toBe(true);
+        expect(adapter.getUser(5)).toBeUndefined();
+        expect(adapter.listUsers()).toHaveLength(5);
+      });
+
       it('throws error when deleting non-existent user id', () => {
         expect(() => {
           adapter.deleteUser(999);

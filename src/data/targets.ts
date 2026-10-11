@@ -294,6 +294,7 @@ export interface TargetAdapter {
   listTargets(fyCode?: string): SalesTarget[];
   getTarget(userId: number, fyCode?: string): SalesTarget | null;
   upsertTarget(input: TargetUpdateInput): SalesTarget;
+  deleteTargetsByUser(userId: number): number;
   reset(): void;
   current?: TargetAdapter;
 }
@@ -354,6 +355,12 @@ export function createTargetAdapter(): TargetAdapter {
       };
       store.push(created);
       return structuredClone(created);
+    },
+
+    deleteTargetsByUser(userId: number): number {
+      const initialCount = store.length;
+      store = store.filter((t) => t.user_id !== userId);
+      return initialCount - store.length;
     },
 
     reset(): void {

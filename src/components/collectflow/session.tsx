@@ -231,6 +231,9 @@ export function MockSessionProvider({
         throw new Error(val.error || 'Failed to delete user');
       }
       userAdapter.current.deleteUser(targetId);
+      targetAdapter.current.deleteTargetsByUser(targetId);
+      const nextTargets = targetAdapter.current.listTargets();
+      setTargets(nextTargets);
     }
 
     if (current.current.revision !== context.revision || current.current.role !== context.role || current.current.fy !== context.fy) {

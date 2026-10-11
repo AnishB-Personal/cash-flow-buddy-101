@@ -43,9 +43,10 @@ export interface UserDrawerProps {
 }
 
 export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
-  const { role, users, demo, confirmUser, userAdapter, mobile } = useMockSession();
+  const { role, users, demo, confirmUser, userAdapter, mobile, targets } = useMockSession();
   const initialRole = useRef(role);
   const isAdmin = role === 'admin';
+  const userTargets = user ? targets.filter(t => t.user_id === user.id) : [];
 
   // 5-step workflow state
   const [step, setStep] = useState<'form' | 'validation' | 'review' | 'confirm' | 'result'>('form');
@@ -279,11 +280,21 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
     }
 
     if (mode === 'delete' && user) {
+      const associatedTargets = targets.filter(t => t.user_id === user.id);
       const diffs: UserReviewDiff[] = [
         { field: 'Status', previous: 'Active', current: 'Deleted' },
         { field: 'Username', previous: `@${user.username}`, current: '—' },
         { field: 'Role', previous: user.role, current: '—' },
       ];
+
+      if (associatedTargets.length > 0) {
+        const fyList = [...new Set(associatedTargets.map(t => t.fy_code))].join(', ');
+        diffs.push({
+          field: 'Associated Sales Targets',
+          previous: `${associatedTargets.length} target(s) (${fyList})`,
+          current: 'Cascade deleted (backend ON DELETE CASCADE)',
+        });
+      }
 
       const rev: UserReview = {
         action: 'delete',
@@ -672,6 +683,13 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
                       <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
                         <strong>Administrative Safeguards Notice:</strong> Deletion will be verified against
                         sole-administrator requirements, self-deletion rules, and historical invoice linkage.
+                        {userTargets.length > 0 && (
+                          <span style={{ display: 'block', marginTop: 6 }}>
+                            <strong>Notice:</strong> This user has {userTargets.length} assigned sales target(s).
+                            Under backend rules (ON DELETE CASCADE), associated sales targets will be cascade deleted
+                            while historical invoice integrity is preserved.
+                          </span>
+                        )}
                       </p>
                     </div>
 
@@ -828,6 +846,12 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
                           >
                             {error || validationMessage}
                           </p>
+                          {!error && userTargets.length > 0 && (
+                            <p className="cf-muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
+                              Target Cascade Notice: {userTargets.length} associated target(s) across FY{' '}
+                              {[...new Set(userTargets.map(t => t.fy_code))].join(', ')} will be cascade deleted per backend foreign key constraint.
+                            </p>
+                          )}
                           {error && (
                             <p className="cf-muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
                               State remains completely unchanged. Action cannot proceed while blocking conditions exist.

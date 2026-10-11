@@ -406,22 +406,37 @@ describe('Stage 5 — Users & Roles UI and Workflows (Component Tests)', () => {
       expect(screen.getByTestId('user-row-3')).toBeDefined();
     });
 
-    it('deletes an eligible user cleanly and updates the directory table', async () => {
+    it('deletes an eligible user cleanly, displays target cascade disclosure, eliminates orphaned targets, and resets cleanly', async () => {
+      let sessionRef: ReturnType<typeof useMockSession> | undefined;
+
       render(
         <Wrapper role="admin">
-          <UsersScreen />
+          <DynamicRoleController onSessionReady={s => { sessionRef = s; }}>
+            <UsersScreen />
+          </DynamicRoleController>
         </Wrapper>,
       );
 
-      // User 5 (Arjun Mehta / anshar) has 0 invoice links
+      // User 5 (Arjun Mehta / anshar) has 0 invoice links but has FY 2025-26 sales target
       expect(screen.getByTestId('user-row-5')).toBeDefined();
+      expect(sessionRef?.targets.find(t => t.user_id === 5)).toBeDefined();
 
       fireEvent.click(within(screen.getByTestId('user-row-5')).getByRole('button', { name: /delete user anshar/i }));
 
+      // Step 1: Notice of associated targets
+      expect(screen.getByText(/this user has 1 assigned sales target\(s\)/i)).toBeDefined();
+
+      // Proceed to Step 2: Validation
       fireEvent.click(screen.getByRole('button', { name: /proceed to validation/i }));
       expect(screen.getByText(/user account is eligible for permanent deletion/i)).toBeDefined();
+      expect(screen.getByText(/target cascade notice: 1 associated target\(s\)/i)).toBeDefined();
 
+      // Proceed to Step 3: Review
       fireEvent.click(screen.getByRole('button', { name: /continue to review/i }));
+      expect(screen.getByText('Associated Sales Targets')).toBeDefined();
+      expect(screen.getByText(/cascade deleted \(backend on delete cascade\)/i)).toBeDefined();
+
+      // Proceed to Step 4 & 5
       fireEvent.click(screen.getByRole('button', { name: /continue to confirmation/i }));
       fireEvent.click(screen.getByRole('button', { name: /confirm delete user/i }));
 
@@ -434,6 +449,21 @@ describe('Stage 5 — Users & Roles UI and Workflows (Component Tests)', () => {
       await waitFor(() => {
         expect(screen.queryByTestId('user-row-5')).toBeNull();
       });
+
+      // Verify no orphaned targets remain for user 5
+      expect(sessionRef?.targets.filter(t => t.user_id === 5)).toHaveLength(0);
+
+      // Verify Reset Demo restores Arjun Mehta and his FY 2025-26 target
+      act(() => {
+        sessionRef!.resetDemo();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user-row-5')).toBeDefined();
+      });
+      const restoredTarget = sessionRef?.targets.find(t => t.user_id === 5 && t.fy_code === 'FY 2025-26');
+      expect(restoredTarget).toBeDefined();
+      expect(restoredTarget?.yearly_target).toBe(2500000);
     });
   });
 

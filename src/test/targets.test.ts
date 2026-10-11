@@ -510,5 +510,32 @@ describe("Sales Targets — Data Layer & Calculations", () => {
       // Via targetAdapter.current
       expect(result.current.targetAdapter.current.listTargets()).toHaveLength(5);
     });
+
+    it("deleteTargetsByUser cascades deletion of all targets for a user and resets cleanly", () => {
+      const adapter = createTargetAdapter();
+      expect(adapter.listTargets()).toHaveLength(5);
+
+      // Arjun Mehta (user_id: 5) has 1 target in FY 2025-26 (₹25,00,000)
+      const arjunTarget = adapter.getTarget(5, "FY 2025-26");
+      expect(arjunTarget).toBeDefined();
+      expect(arjunTarget?.yearly_target).toBe(2500000);
+
+      const deletedCount = adapter.deleteTargetsByUser(5);
+      expect(deletedCount).toBe(1);
+
+      // No targets remaining for Arjun Mehta
+      expect(adapter.getTarget(5, "FY 2025-26")).toBeNull();
+      expect(adapter.listTargets().filter(t => t.user_id === 5)).toHaveLength(0);
+      expect(adapter.listTargets()).toHaveLength(4);
+
+      // Reset restores Arjun's target and total team target
+      adapter.reset();
+      expect(adapter.listTargets()).toHaveLength(5);
+      const restoredArjun = adapter.getTarget(5, "FY 2025-26");
+      expect(restoredArjun).toBeDefined();
+      expect(restoredArjun?.yearly_target).toBe(2500000);
+      const fy25Total = adapter.listTargets("FY 2025-26").reduce((sum, t) => sum + t.yearly_target, 0);
+      expect(fy25Total).toBe(9100000); // Neha 36L + Kavya 30L + Arjun 25L = 91L
+    });
   });
 });

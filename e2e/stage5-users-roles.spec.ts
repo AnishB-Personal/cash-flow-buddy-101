@@ -395,8 +395,17 @@ test.describe('CollectFlow Stage 5 — Users & Roles E2E Suite', () => {
     const arjunRow = page.locator('[data-testid="user-row-5"]');
     await expect(arjunRow).toBeVisible();
     await arjunRow.getByRole('button', { name: /delete user anshar/i }).click();
+
+    // Verify cascade notice in Step 1 & 2
     await page.getByRole('button', { name: /proceed to validation/i }).click();
+    await expect(page.getByText(/target cascade notice: 1 associated target\(s\)/i)).toBeVisible();
+
+    // Verify cascade disclosure diff in Step 3 Review
     await page.getByRole('button', { name: /continue to review/i }).click();
+    await expect(page.getByText('Associated Sales Targets')).toBeVisible();
+    await expect(page.getByText(/cascade deleted \(backend on delete cascade\)/i)).toBeVisible();
+
+    // Confirm deletion
     await page.getByRole('button', { name: /continue to confirmation/i }).click();
     await page.getByRole('button', { name: /confirm delete user/i }).click();
     await page.getByRole('button', { name: /return to user directory/i }).click();
@@ -404,6 +413,20 @@ test.describe('CollectFlow Stage 5 — Users & Roles E2E Suite', () => {
     // Verify user 5 is deleted
     await expect(page.locator('[data-testid="user-row-5"]')).not.toBeVisible();
     expect(await page.locator('[data-testid="users-table"] tbody tr').count()).toBe(5);
+
+    // Verify targets cascade deleted: Arjun's target is eliminated, FY 2025-26 total drops to ₹66,00,000
+    await page.locator('.cf-sidebar .cf-nav-item', { hasText: 'Sales Targets' }).click();
+    await expect(page.locator('h1')).toHaveText('Sales Targets');
+    const fyTriggerBeforeReset = page.locator('button[aria-label="Financial year filter"]');
+    await fyTriggerBeforeReset.click();
+    await page.getByRole('option', { name: 'FY 2025-26' }).click();
+    await page.waitForTimeout(300);
+    await expect(page.locator('.cf-metrics')).toContainText('₹66,00,000');
+    // Ensure Arjun is NOT in targets table
+    await expect(page.locator('.cf-table')).not.toContainText('Arjun Mehta');
+
+    // Return to Users to execute reset
+    await page.locator('.cf-sidebar .cf-nav-item', { hasText: 'Users & Roles' }).click();
 
     // Trigger Reset Demo
     await restoreBaseline(page);

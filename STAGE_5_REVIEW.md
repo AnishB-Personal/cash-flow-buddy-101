@@ -298,6 +298,35 @@ The implementation and verification of Stage 5 was executed through a coordinate
   - Disables action advancement and confirmation buttons (`disabled={!isAdmin}`).
   - Pre-confirmation check in `handleConfirm` and `session.tsx:confirmUser` immediately throws a permission exception and prevents commit.
 
+### 9.6 User Deletion and Historical Sales Target Integrity (FastAPI Cascade Analysis & Verification)
+- **Authoritative FastAPI Inspection**:
+  - Inspected `/home/anishb/projects/personal/collectflow/app/routers/users.py:157` (`delete_user`):
+    ```python
+    # Delete user sessions and targets
+    cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM sales_targets WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    ```
+  - Inspected database schema in `collectflow.db`:
+    ```sql
+    CREATE TABLE sales_targets (
+      ...
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      ...
+    )
+    ```
+  - Authoritative rule: Deletion of a user referenced on historical invoices (`invoices.executive_id`) is strictly rejected with HTTP 400. In contrast, deletion of a user with sales targets (and no invoices, such as Arjun Mehta id: 5) is **PERMITTED** and **CASCADES** deletion to associated `sales_targets`.
+- **Frontend Safeguards & Implementation**:
+  1. `TargetAdapter` in `src/data/targets.ts` implements `deleteTargetsByUser(userId: number): number`, removing all targets linked to the specified user without leaving orphaned target records.
+  2. `session.tsx:confirmUser` invokes `targetAdapter.current.deleteTargetsByUser(targetId)` upon delete confirmation and immediately synchronizes active `targets` state.
+  3. `user-drawer.tsx` discloses target cascade deletion at every step:
+     - **Step 1 (Form)**: Informs administrator that the user has assigned sales targets which will be cascade deleted per backend `ON DELETE CASCADE` rules.
+     - **Step 2 (Validation)**: Displays `Target Cascade Notice: [count] associated target(s) across FY [FY list] will be cascade deleted per backend foreign key constraint.`
+     - **Step 3 (Review)**: Explicit diff row: `{ field: 'Associated Sales Targets', previous: '1 target(s) (FY 2025-26)', current: 'Cascade deleted (backend ON DELETE CASCADE)' }`.
+  4. **State Immutability & Restoration**:
+     - Deleting Arjun Mehta (id: 5) cleanly removes user 5 and cascades deletion of his ₹25,00,000 target from FY 2025-26 (team target drops from ₹91,00,000 to ₹66,00,000; 0 orphaned records remain).
+     - Triggering `Reset Demo` restores all 6 baseline users, restores Arjun Mehta's ₹25,00,000 target, restores the team FY 2025-26 total to ₹91,00,000, and preserves all 7 Stage 3 financial invariants.
+
 ---
 
 ## 10. Financial Reconciliation & Invariant Preservation
@@ -307,12 +336,12 @@ Stage 5 modifications are strictly isolated within user and access management do
 ### Baseline Users Restored by Reset Demo
 | User ID | Username | Role | Full Name | Associated Records |
 |:-------:|:--------:|:----:|:----------|:-------------------|
-| 1 | `admin` | `admin` | Administrator | System Admin / Acting User |
-| 2 | `finance_lead` | `finance` | Vikramaditya Singhania | Finance Lead |
-| 3 | `siliya` | `sales` | Neha Rao | Linked to `INV-2026-042` (Target: ₹40L) |
-| 4 | `syama` | `sales` | Kavya Nair | Linked to `PO-NEXUS-881` (Target: ₹35L) |
-| 5 | `anshar` | `sales` | Arjun Mehta | Eligible for target / deletion (Target: Unassigned) |
-| 6 | `auditor` | `viewer` | Senior Auditor | Read-only compliance |
+| 1 | `admin` | `admin` | System Administrator | System Admin / Acting User |
+| 2 | `finance_lead` | `finance` | Aisha Khan | Finance Lead |
+| 3 | `siliya` | `sales` | Neha Rao | Linked to `INV-2026-042` (FY 26 Target: ₹40L, FY 25 Target: ₹36L) |
+| 4 | `syama` | `sales` | Kavya Nair | Linked to `PO-NEXUS-881` (FY 26 Target: ₹35L, FY 25 Target: ₹30L) |
+| 5 | `anshar` | `sales` | Arjun Mehta | 0 Invoices; FY 2025-26 Target: ₹25L (Cascades on deletion; Restored on Reset) |
+| 6 | `auditor` | `viewer` | Kavita Rao | Read-only compliance |
 
 ### Stage 4 Sales Targets Preserved
 - **FY 2026-27 Target Total**: ₹75,00,000 (Neha Rao: ₹40,00,000; Kavya Nair: ₹35,00,000). Achieved pre-GST basis: ₹4,50,000 (6.0%).
@@ -335,22 +364,22 @@ Stage 5 modifications are strictly isolated within user and access management do
 
 ```
 Test Files  30 passed (30)
-     Tests  437 passed (437)
-  Duration  20.87s
+     Tests  439 passed (439)
+  Duration  26.51s
   Pass Rate 100%
 ```
 
-*(Note: Initial Worker M3 gate comprised 29 test files and 417 passed tests. The suite expanded to 30 files and 437 tests with the inclusion of Challenger 2's adversarial safeguards test suite).*
+*(Note: Initial Worker M3 gate comprised 29 test files and 417 passed tests. The suite expanded to 30 files and 437 tests with the inclusion of Challenger 2's adversarial safeguards test suite, and subsequently to 439 tests with dedicated sales-target cascade deletion and orphaned-record regression tests).*
 
 ### Test Suite Breakdown
 | Suite / Test File | Tests | Focus Area |
 |-------------------|:-----:|------------|
-| `src/test/users.test.ts` | 40 | User domain models, Zod schemas, username regex, password validation, last-admin demotion/deletion, invoice linkage, and adapter CRUD. |
-| `src/test/users-ui.test.tsx` | 14 | React directory screen, search, role filters, 5-step create flow, password clearing, viewing mode, mid-workflow role change, and Reset Demo. |
+| `src/test/users.test.ts` | 41 | User domain models, Zod schemas, username regex, password validation, last-admin demotion/deletion, invoice linkage, target cascade on user deletion, and adapter CRUD. |
+| `src/test/users-ui.test.tsx` | 14 | React directory screen, search, role filters, 5-step create flow, password clearing, viewing mode, mid-workflow role change, target cascade disclosure diff, and Reset Demo. |
 | `src/test/challenger-boundary.test.ts` | 25 | Adversarial boundary testing: string lengths (2, 3, 50, 51), regex symbol exclusion, case-insensitive duplicate permutations, password boundaries. |
 | `src/test/challenger-boundary-ui.test.tsx` | 6 | UI boundary testing: form alerts, button disabled states, error banners. |
 | `src/test/challenger-safeguards.test.ts` | 20 | Adversarial safeguards testing: self-deletion, sole-admin quorums, 50-iteration zero state mutation, unlinked deletion blast radius. |
-| `src/test/targets.test.ts` | 30 | Sales targets data models, auto-derivation, achievement calculations, and multi-year fixtures (Stage 4 regression). |
+| `src/test/targets.test.ts` | 31 | Sales targets data models, auto-derivation, achievement calculations, multi-year fixtures, and `deleteTargetsByUser` cascade tests (Stage 4 regression). |
 | `src/test/targets-ui.test.tsx` | 27 | Target drawer workflows, custom input guard, discard warnings (Stage 4 regression). |
 | `src/test/analytics.test.tsx` | 11 | Performance analytics KPIs, period breakdowns, and leaderboard calculations (Stage 4 regression). |
 | `src/test/payments.test.ts` & UI | 73 | Payment recording, settlements, corrections, and adversarial math suites (Stage 3 regression). |
@@ -358,30 +387,30 @@ Test Files  30 passed (30)
 | `src/test/orders*.test.ts` | 24 | Order creation, edit, conversion, and review diffs (Stage 1 regression). |
 | `src/test/app-routing.test.tsx` | 5 | Route assertions for `/users`, `/sales-targets`, `/performance-analytics`, etc. |
 | Other regression suites | 114 | Mobile drawers, references, aging, reporting dates, scenario baseline resets. |
-| **Total** | **437** | **100% Passed across 30 test files** |
+| **Total** | **439** | **100% Passed across 30 test files** |
 
 ---
 
 ## 12. Multi-Viewport Playwright Browser Test Results
 
 ```
-Command: LD_LIBRARY_PATH=/home/anishb/.local/lib npx playwright test e2e/stage5-users-roles.spec.ts
-Result: 9 passed (33.8s)
+Command: LD_LIBRARY_PATH=/home/anishb/.local/lib npx playwright test
+Result: 114 passed across 7 test files (4.8m)
+Exit Code: 0
 Console Errors: 0 unhandled errors across all runs
 ```
 
-### Spec Execution Detail (`e2e/stage5-users-roles.spec.ts`)
-| Test Name | Viewport | Duration | Result |
-|-----------|:--------:|:--------:|:------:|
-| 1. Navigation and responsive rendering across 1440px-desktop | 1440 × 900 | 4.7s | ✅ PASSED |
-| 2. Navigation and responsive rendering across 768px-tablet | 768 × 1024 | 2.8s | ✅ PASSED |
-| 3. Navigation and responsive rendering across 390px-mobile | 390 × 844 | 2.6s | ✅ PASSED |
-| 4. Navigation and responsive rendering across 320px-narrow-mobile | 320 × 568 | 3.0s | ✅ PASSED |
-| 5. Complete 5-step create user workflow and password sanitization at 1440px desktop | 1440 × 900 | 2.9s | ✅ PASSED |
-| 6. Blocks deleting user Neha Rao (id: 3) referenced on invoice INV-2026-042 | 1440 × 900 | 2.6s | ✅ PASSED |
-| 7. Role switching displays viewing mode banner and disables mutations for non-admin roles | 1440 × 900 | 3.0s | ✅ PASSED |
-| 8. Mid-drawer role change blocks action with denial banner and prevents confirmation | 1440 × 900 | 2.8s | ✅ PASSED |
-| 9. Reset Demo restores all 6 baseline users, Stage 4 targets, and Stage 3 financial invariants | 1440 × 900 | 4.8s | ✅ PASSED |
+### Complete Test Suites Executed
+| Spec File | Tests Passed | Focus & Scope |
+|-----------|:------------:|---------------|
+| `e2e/stage5-users-roles.spec.ts` | 9 | Multi-viewport (1440px, 768px, 390px, 320px) users directory, 5-step create flow, password security, invoice linkage guard, viewing mode, mid-workflow role revalidation, target cascade disclosure, and Reset Demo. |
+| `e2e/stage4-targets-analytics.spec.ts` | 13 | Multi-viewport sales targets, performance analytics, FY 2026-27 (₹75L) & FY 2025-26 (₹91L) baselines, direct route loading, CF4-01–CF4-05 regressions. |
+| `e2e/stage3-payments.spec.ts` | 22 | Payments ledger, record payment workflow, cash/TDS breakdowns, administrative payment corrections, and invoice cancellation. |
+| `e2e/stage3-verification-fixes.spec.ts` | 5 | Stage 3 browser verification fixes across viewports. |
+| `e2e/stage3-challenger-m3-2.spec.ts` | 14 | Adversarial payment corrections and multi-viewport responsive checks. |
+| `e2e/m3-adversarial-challenger.spec.ts` | 19 | Cross-route adversarial stress testing and scroll containment. |
+| `e2e/stage2-responsive.spec.ts` | 32 | Orders, invoices, AR aging, reference data, and responsive drawer containment. |
+| **Total Across All Specs** | **114** | **100% Passed (4.8m duration, 0 errors, exit code 0)** |
 
 ### Responsive Design & Scroll Containment
 - **Horizontal Scroll Check**: Evaluated `scrollWidth <= clientWidth + 1` across 390px and 320px mobile viewports; verified zero unwanted horizontal scrolling.
@@ -416,12 +445,13 @@ Console Errors: 0 unhandled errors across all runs
 | Verification Gate | Required Standard | Observed Result | Status |
 |-------------------|-------------------|-----------------|:------:|
 | **TypeScript Typecheck** | `npx tsc --noEmit` exits with 0 | Clean (0 errors) | ✅ PASS |
-| **Unit & Integration Suite** | `npm test` 100% pass rate | 30 files, 437 tests passed | ✅ PASS |
-| **Production Build** | `npm run build` Nitro Cloudflare preset | Built cleanly (620ms) | ✅ PASS |
-| **Playwright Browser Tests** | 4 viewports, zero console errors | 9/9 passed (33.8s, 0 errors) | ✅ PASS |
+| **Unit & Integration Suite** | `npm test` 100% pass rate | 30 files, 439 tests passed | ✅ PASS |
+| **Production Build** | `npm run build` Nitro Cloudflare preset | Built cleanly (606ms) | ✅ PASS |
+| **Playwright Full Test Suite** | 4 viewports, zero console errors | 7 specs, 114/114 passed (4.8m, 0 errors, exit code 0) | ✅ PASS |
 | **Visual Artifacts** | 6 screenshots captured | All 6 present & verified | ✅ PASS |
 | **Password Zero-Retention** | No credentials persisted or logged | Verified across store & DOM | ✅ PASS |
 | **Business Safeguards** | Sole admin, self-delete, invoice linkage | 100% enforced & immutability verified | ✅ PASS |
+| **Target Cascade Integrity** | Deleting user cascades targets; no orphaned targets | Verified in FastAPI code, SQLite FK, Vitest & Playwright | ✅ PASS |
 | **Mid-Drawer Revalidation** | Denial banner & blocked commit | Verified in UI & Playwright | ✅ PASS |
 | **Financial Invariants** | All 7 Stage 3 invariants preserved | ₹5.31L, ₹2.00L, ₹9k, ₹2.09L, ₹3.22L, ₹2.95L | ✅ PASS |
 | **Stage 4 Target Baselines** | FY 2026-27 & 2025-26 restored | ₹75L & ₹91L targets restored | ✅ PASS |
