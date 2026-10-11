@@ -12,6 +12,16 @@ import {
   type TargetReview,
   type TargetUpdateInput,
 } from '@/data/targets';
+import {
+  createUsersAdapter,
+  readInitialUsers,
+  INITIAL_USERS,
+  type User,
+  type UserAdapter,
+  type UserReview,
+  type UserCreateInput,
+  type UserUpdateInput,
+} from '@/data/users';
 
 type Session = {
   role: Role;
@@ -33,6 +43,9 @@ type Session = {
   targets: SalesTarget[];
   targetAdapter: TargetAdapter & { current: TargetAdapter };
   confirmTarget: (reviewOrInput: TargetReview | TargetUpdateInput) => Promise<SalesTarget>;
+  users: User[];
+  userAdapter: UserAdapter & { current: UserAdapter };
+  confirmUser: (review: UserReview) => Promise<User | void>;
   mobile: boolean;
   setMobile: (value: boolean) => void;
 };
@@ -59,6 +72,8 @@ export function MockSessionProvider({
   const paymentAdapter = useRef(createPaymentAdapter());
   const [targets, setTargets] = useState(readInitialTargets);
   const targetAdapter = useRef(createTargetAdapter());
+  const [users, setUsers] = useState(readInitialUsers);
+  const userAdapter = useRef(createUsersAdapter(INITIAL_USERS));
 
   const current = useRef({ role, fy, scenario, revision, references });
   current.current = { role, fy, scenario, revision, references };
@@ -69,7 +84,9 @@ export function MockSessionProvider({
     orderAdapter.current.reset();
     paymentAdapter.current.reset();
     targetAdapter.current.reset();
+    userAdapter.current.reset();
     setTargets(targetAdapter.current.listTargets());
+    setUsers(userAdapter.current.listUsers());
     const restored = readReferences();
     current.current = { ...current.current, scenario: value, references: restored, revision: current.current.revision + 1 };
     setReferences(restored);
@@ -187,6 +204,46 @@ export function MockSessionProvider({
     return result;
   }
 
+  async function confirmUser(review: UserReview): Promise<User | void> {
+    const context = current.current;
+    if (context.role !== 'admin') {
+      throw new Error('Permission denied: only administrators can manage users');
+    }
+
+    let resultUser: User | undefined;
+    if (review.action === 'create') {
+      if (!review.input || !('username' in review.input)) {
+        throw new Error('Invalid user creation input');
+      }
+      resultUser = userAdapter.current.createUser(review.input as UserCreateInput);
+    } else if (review.action === 'update') {
+      if (!review.input || !('id' in review.input)) {
+        throw new Error('Invalid user update input');
+      }
+      resultUser = userAdapter.current.updateUser(review.input as UserUpdateInput);
+    } else if (review.action === 'delete') {
+      const targetId = review.targetUser?.id ?? (review.input && 'id' in review.input ? review.input.id : undefined);
+      if (typeof targetId !== 'number') {
+        throw new Error('Invalid user deletion target');
+      }
+      const val = userAdapter.current.validateDelete(targetId, userAdapter.current.listUsers(), demo.invoices, 1);
+      if (!val.valid) {
+        throw new Error(val.error || 'Failed to delete user');
+      }
+      userAdapter.current.deleteUser(targetId);
+    }
+
+    if (current.current.revision !== context.revision || current.current.role !== context.role || current.current.fy !== context.fy) {
+      throw new Error('Context changed. No changes applied.');
+    }
+
+    const nextUsers = userAdapter.current.listUsers();
+    current.current = { ...context, revision: context.revision + 1 };
+    setUsers(nextUsers);
+    setRevision(val => val + 1);
+    return resultUser;
+  }
+
   return (
     <SessionContext.Provider
       value={{
@@ -209,6 +266,9 @@ export function MockSessionProvider({
         targets,
         targetAdapter: targetAdapter.current as TargetAdapter & { current: TargetAdapter },
         confirmTarget,
+        users,
+        userAdapter: userAdapter.current as UserAdapter & { current: UserAdapter },
+        confirmUser,
         mobile,
         setMobile,
       }}
