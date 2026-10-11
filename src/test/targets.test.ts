@@ -279,6 +279,21 @@ describe("Sales Targets — Data Layer & Calculations", () => {
       const neha25 = adapter.getTarget(3, "FY 2025-26");
       expect(neha25).not.toBeNull();
       expect(neha25?.yearly_target).toBe(3600000);
+
+      const kavya25 = adapter.getTarget(4, "FY 2025-26");
+      expect(kavya25).not.toBeNull();
+      expect(kavya25?.yearly_target).toBe(3000000);
+
+      const arjun25 = adapter.getTarget(5, "FY 2025-26");
+      expect(arjun25).not.toBeNull();
+      expect(arjun25?.yearly_target).toBe(2500000);
+      expect(arjun25?.half_yearly_target).toBe(1250000);
+      expect(arjun25?.quarterly_target).toBe(625000);
+      expect(arjun25?.monthly_target).toBe(208333.33);
+
+      const targets25 = adapter.listTargets("FY 2025-26");
+      const total25 = targets25.reduce((sum, t) => sum + t.yearly_target, 0);
+      expect(total25).toBe(9100000);
     });
 
     it("filters targets by financial year", () => {

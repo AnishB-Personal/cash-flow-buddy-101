@@ -243,17 +243,17 @@ Reset Demo restores all of the above to the approved baseline state along with a
 
 ```
 Test Files  25 passed (25)
-     Tests  331 passed (331)
-  Start at  02:30:47
-  Duration  18.63s
+     Tests  332 passed (332)
+  Start at  03:45:31
+  Duration  20.05s
 ```
 
 ### Stage 4 Test Coverage
 | Suite | Tests | Coverage |
 |-------|-------|----------|
-| `targets.test.ts` | 30 | Data models, Zod validation, auto-derivation, achievement calc, fixture integrity |
+| `targets.test.ts` | 30 | Data models, Zod validation, auto-derivation, achievement calc, multi-year fixture integrity (incl. Arjun Mehta ₹25,00,000 and team total ₹91,00,000) |
 | `targets-ui.test.tsx` | 27 | 4-step workflow, RBAC guard, discard dialog, custom input guard, CF4-04 & CF4-05 regression |
-| `analytics.test.tsx` | 10 | Summary KPI cards, leaderboard sort, period breakdown, unbilled PO exclusion, dashboard integration |
+| `analytics.test.tsx` | 11 | Summary KPI cards, multi-year coverage (FY 2026-27 ₹75L, FY 2025-26 ₹91L), leaderboard sort, period breakdown, unbilled PO exclusion, dashboard integration |
 | `app-routing.test.tsx` | 5 | `/sales-targets` and `/performance-analytics` route assertions |
 
 ---
@@ -261,12 +261,12 @@ Test Files  25 passed (25)
 ## 11. Playwright Viewport Results
 
 ```
-105 passed (3.9m)
+105 passed (4.2m)
 ```
 
 | Spec | Tests | Result |
 |------|-------|--------|
-| `stage4-targets-analytics.spec.ts` | 13 | ✅ All pass |
+| `stage4-targets-analytics.spec.ts` | 13 | ✅ All pass (incl. FY 2025-26 Arjun Mehta ₹25L and ₹91L team total reset verification) |
 | `stage3-challenger-m3-2.spec.ts` | 47 | ✅ All pass (stress & regression) |
 | `stage3-payments.spec.ts` | 24 | ✅ All pass (regression) |
 | `stage2-responsive.spec.ts` | 10 | ✅ All pass (regression) |
@@ -307,7 +307,7 @@ Test Files  25 passed (25)
 |----------|----------|------------|-----------------|
 | **CF4-01** | MEDIUM | `/performance-analytics` route was not registered in TanStack Router; existed only as a tab inside Sales Targets | Created `src/routes/performance-analytics.tsx`, registered `Performance Analytics` in `Screen` union and sidebar navigation, wired direct route and view switches |
 | **CF4-02** | HIGH | Sales achievement calculation was including unbilled purchase orders (specifically PO-NEXUS-881 for Kavya ₹2,50,000), inflating team achievement to ₹7,00,000 (9.3%) | Excluded unbilled orders by checking `invoice_number` and status in `calculateExecutiveAchievement` and `PerformanceAnalytics` active invoices filter. Kavya achieved: ₹0 (0.0%), Team achieved: ₹4,50,000 (6.0%), Remaining: ₹70,50,000 |
-| **CF4-03** | HIGH | FY 2025-26 target fixtures were missing from baseline data, and documented names (Amit/Priya/Ravi) did not match actual backend users (Neha id:3, Kavya id:4, Arjun id:5) | Seeded 3 baseline targets for FY 2025-26 for existing sales users (`siliya`, `syama`, `anshar`) with realistic targets and ₹0 historical achievement (no fabricated invoices) |
+| **CF4-03** | HIGH | FY 2025-26 target fixtures required final alignment to Neha (₹36,00,000), Kavya (₹30,00,000), Arjun (₹25,00,000) for a combined annual target of ₹91,00,000 with ₹0 historical achievement | Seeded 3 baseline targets for FY 2025-26 for existing sales users (`siliya` ₹36L, `syama` ₹30L, `anshar` ₹25L) with sub-period derivations (Arjun: H1 ₹12.5L, Q1 ₹6.25L, M1 ₹2,08,333.33) and ₹0 historical achievement (no fabricated invoices) |
 | **CF4-04** | LOW | Negative input `-1` in target drawer was silently coerced to `0` without validation feedback | Preserved raw numeric input, added inline validation `Yearly target must be greater than or equal to 0.00`, blocked Proceed to Review on negative values |
 | **CF4-05** | LOW | "Zero Target" preset button left stale sub-period overrides active in drawer state | Cleaned drawer breakdown overrides upon selecting Zero Target preset, setting all sub-period fields cleanly to ₹0 |
 

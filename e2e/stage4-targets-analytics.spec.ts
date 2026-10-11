@@ -483,8 +483,23 @@ test.describe('CollectFlow Stage 4 — Sales Targets & Performance Analytics', (
     await confirmBtn.click();
     await page.waitForTimeout(400);
 
-    // Verify targets screen restored to baseline (Neha Rao baseline is ₹40,00,000)
+    // Verify targets screen restored to baseline (Neha Rao baseline is ₹40,00,000 in FY 2026-27)
     await expect(page.locator('.cf-table')).toContainText('₹40,00,000');
+
+    // Switch to FY 2025-26 and verify restored baseline for Arjun Mehta (₹25,00,000) and team total (₹91,00,000)
+    const fyTrigger = page.locator('button[aria-label="Financial year filter"]');
+    await fyTrigger.click();
+    await page.getByRole('option', { name: 'FY 2025-26' }).click();
+    await page.waitForTimeout(300);
+
+    const arjunRow25 = page.locator('.cf-table tbody tr').filter({ hasText: 'Arjun Mehta' });
+    await expect(arjunRow25).toContainText('₹25,00,000');
+    await expect(page.locator('.cf-metrics')).toContainText('₹91,00,000');
+
+    // Switch back to FY 2026-27
+    await fyTrigger.click();
+    await page.getByRole('option', { name: 'FY 2026-27' }).click();
+    await page.waitForTimeout(300);
 
     // Navigate to Dashboard and verify all 7 invariants
     await page.locator('.cf-nav-item', { hasText: 'Dashboard' }).click();

@@ -201,6 +201,30 @@ describe("Performance Analytics UI & Calculations", () => {
       const achCard = screen.getByTestId("metric-achievement-rate");
       expect(within(achCard).getByText("0.0%")).toBeInTheDocument();
     });
+
+    it("renders FY 2025-26 total target of ₹91,00,000 with ₹0 sales achievement", () => {
+      render(
+        <PerformanceAnalytics
+          fy="FY 2025-26"
+          records={sampleInvoices}
+          targets={INITIAL_TARGETS}
+        />,
+      );
+
+      // Total target for FY 2025-26: Neha (36L) + Kavya (30L) + Arjun (25L) = 91L (₹91,00,000)
+      const targetCard = screen.getByTestId("metric-total-target");
+      expect(within(targetCard).getByText("₹91,00,000")).toBeInTheDocument();
+
+      // No FY 2025-26 invoices exist in sampleInvoices, so actual sales must be ₹0
+      const actualCard = screen.getByTestId("metric-actual-sales");
+      expect(within(actualCard).getByText("₹0")).toBeInTheDocument();
+
+      const achCard = screen.getByTestId("metric-achievement-rate");
+      expect(within(achCard).getByText("0.0%")).toBeInTheDocument();
+
+      const remCard = screen.getByTestId("metric-remaining-target");
+      expect(within(remCard).getByText("₹91,00,000")).toBeInTheDocument();
+    });
   });
 
   describe("Target vs Actual Visual Progress Breakdown", () => {
