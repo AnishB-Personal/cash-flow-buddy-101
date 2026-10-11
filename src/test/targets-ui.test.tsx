@@ -228,7 +228,7 @@ describe('Sales Targets UI & Workflows', () => {
       expect(closeSpy).toHaveBeenCalled();
     });
 
-    it('zero target preset sets target to ₹0 and handles zero quota safely', () => {
+    it('zero target preset sets target to ₹0 and handles zero quota safely with clean zero breakdown (CF4-05)', () => {
       render(
         <Wrapper role="finance">
           <TargetDrawer initialZero={true} close={() => {}} />
@@ -238,11 +238,43 @@ describe('Sales Targets UI & Workflows', () => {
       const yearlyInput = screen.getByLabelText(/annual target \(inr\)/i) as HTMLInputElement;
       expect(yearlyInput.value).toBe('0');
 
+      // Verify that sub-period cards show ₹0 and not stale nonzero numbers
+      const subCards = screen.getAllByText('₹0');
+      expect(subCards.length).toBeGreaterThanOrEqual(1);
+
+      // Also test clicking the Zero Target preset button on an existing dirty form
+      const zeroPresetBtn = screen.getByRole('button', { name: 'Zero Target' });
+      fireEvent.click(zeroPresetBtn);
+      expect((screen.getByLabelText(/annual target \(inr\)/i) as HTMLInputElement).value).toBe('0');
+
       // Review zero target
       const reviewBtn = screen.getByRole('button', { name: /review target changes/i });
       fireEvent.click(reviewBtn);
 
       expect(screen.getByText('0.0%')).toBeDefined();
+    });
+
+    it('rejects negative target amount with inline error and blocks proceeding to Review (CF4-04)', () => {
+      render(
+        <Wrapper role="finance">
+          <TargetDrawer close={() => {}} />
+        </Wrapper>,
+      );
+
+      const yearlyInput = screen.getByLabelText(/annual target \(inr\)/i);
+      // Type -1
+      fireEvent.change(yearlyInput, { target: { value: '-1' } });
+
+      // Inline error must appear immediately
+      expect(screen.getByText(/yearly target must be greater than or equal to 0\.00/i)).toBeDefined();
+
+      // Attempting to advance to review should be blocked
+      const reviewBtn = screen.getByRole('button', { name: /review target changes/i });
+      fireEvent.click(reviewBtn);
+
+      // Still on Form step, not Review step
+      expect(screen.getByText('Form').getAttribute('aria-current')).toBe('step');
+      expect(screen.queryByText(/verified quota calculation ready for confirmation/i)).toBeNull();
     });
   });
 });

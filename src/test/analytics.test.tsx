@@ -140,21 +140,25 @@ describe("Performance Analytics UI & Calculations", () => {
       expect(within(targetCard).getByText("Total Annual Target")).toBeInTheDocument();
       expect(within(targetCard).getByText("₹75,00,000")).toBeInTheDocument();
 
-      // Actual sales: 450,000 (Neha) + 250,000 (Kavya) = 700,000 (₹7,00,000). Cancelled invoice 103 (100,000) is excluded!
+      // Actual sales: Only issued non-cancelled invoices count.
+      // Neha Rao (INV-2026-042): ₹4,50,000.
+      // Kavya Nair (PO-NEXUS-881, UNBILLED): ₹0 (excluded).
+      // Cancelled invoice 103 (100,000): ₹0 (excluded).
+      // Team Total: ₹4,50,000
       const actualCard = screen.getByTestId("metric-actual-sales");
       expect(within(actualCard).getByText("Actual Sales Achieved")).toBeInTheDocument();
-      expect(within(actualCard).getByText("₹7,00,000")).toBeInTheDocument();
+      expect(within(actualCard).getByText("₹4,50,000")).toBeInTheDocument();
 
-      // Overall achievement: 700,000 / 7,500,000 * 100 = 9.3%
+      // Overall achievement: 450,000 / 7,500,000 * 100 = 6.0%
       const achCard = screen.getByTestId("metric-achievement-rate");
-      expect(within(achCard).getByText("9.3%")).toBeInTheDocument();
+      expect(within(achCard).getByText("6.0%")).toBeInTheDocument();
 
-      // Remaining target: 7,500,000 - 700,000 = 6,800,000 (₹68,00,000)
+      // Remaining target: 7,500,000 - 450,000 = 7,050,000 (₹70,50,000)
       const remCard = screen.getByTestId("metric-remaining-target");
-      expect(within(remCard).getByText("₹68,00,000")).toBeInTheDocument();
+      expect(within(remCard).getByText("₹70,50,000")).toBeInTheDocument();
     });
 
-    it("excludes cancelled invoices from actual sales calculation strictly", () => {
+    it("excludes cancelled invoices and unbilled purchase orders from actual sales calculation strictly", () => {
       render(
         <PerformanceAnalytics
           fy="FY 2026-27"
@@ -163,9 +167,10 @@ describe("Performance Analytics UI & Calculations", () => {
         />,
       );
 
-      // Verify that actual sales is ₹7,00,000 and not ₹8,00,000 (which would happen if cancelled was included)
+      // Verify that actual sales is ₹4,50,000 (unbilled PO-NEXUS-881 250k and cancelled 100k excluded)
       const actualCard = screen.getByTestId("metric-actual-sales");
-      expect(within(actualCard).getByText("₹7,00,000")).toBeInTheDocument();
+      expect(within(actualCard).getByText("₹4,50,000")).toBeInTheDocument();
+      expect(within(actualCard).queryByText("₹7,00,000")).not.toBeInTheDocument();
       expect(within(actualCard).queryByText("₹8,00,000")).not.toBeInTheDocument();
     });
 
@@ -213,26 +218,26 @@ describe("Performance Analytics UI & Calculations", () => {
       expect(screen.getByTestId("period-card-quarterly")).toBeInTheDocument();
       expect(screen.getByTestId("period-card-monthly")).toBeInTheDocument();
 
-      // Check Annual card: Target 75L, Actual 7L (9.3%)
+      // Check Annual card: Target 75L, Actual 4.5L (6.0%)
       const annualCard = screen.getByTestId("period-card-annual");
-      expect(within(annualCard).getByText("9.3%")).toBeInTheDocument();
+      expect(within(annualCard).getByText("6.0%")).toBeInTheDocument();
 
-      // Check Half-Yearly card: Target 37.5L, Actual 7L (18.7%)
+      // Check Half-Yearly card: Target 37.5L, Actual 4.5L (12.0%)
       const hCard = screen.getByTestId("period-card-half-yearly");
-      expect(within(hCard).getByText("18.7%")).toBeInTheDocument();
+      expect(within(hCard).getByText("12.0%")).toBeInTheDocument();
 
-      // Check Quarterly card: Target 18.75L, Actual 7L (37.3%)
+      // Check Quarterly card: Target 18.75L, Actual 4.5L (24.0%)
       const qCard = screen.getByTestId("period-card-quarterly");
-      expect(within(qCard).getByText("37.3%")).toBeInTheDocument();
+      expect(within(qCard).getByText("24.0%")).toBeInTheDocument();
 
-      // Check Monthly card: Target 6.25L, Actual 7L (112.0%)
+      // Check Monthly card: Target 6.25L, Actual 4.5L (72.0%)
       const mCard = screen.getByTestId("period-card-monthly");
-      expect(within(mCard).getByText("112.0%")).toBeInTheDocument();
+      expect(within(mCard).getByText("72.0%")).toBeInTheDocument();
     });
   });
 
   describe("Executive Comparison Leaderboard", () => {
-    it("ranks sales representatives by achievement % descending", () => {
+    it("ranks sales representatives by achievement % descending and excludes unbilled orders from reps", () => {
       render(
         <PerformanceAnalytics
           fy="FY 2026-27"
@@ -242,7 +247,7 @@ describe("Performance Analytics UI & Calculations", () => {
       );
 
       // Neha Rao: 450,000 / 4,000,000 = 11.3% -> Rank 1
-      // Kavya Nair: 250,000 / 3,500,000 = 7.1% -> Rank 2
+      // Kavya Nair: Unbilled PO excluded -> 0 / 3,500,000 = 0.0% -> Rank 2
       // Arjun Mehta: 0 / 0 = 0.0% -> Rank 3
       const table = screen.getByTestId("executive-leaderboard-table");
       const rows = within(table).getAllByRole("row");
@@ -254,8 +259,8 @@ describe("Performance Analytics UI & Calculations", () => {
 
       expect(within(rows[2]!).getByText("Kavya Nair")).toBeInTheDocument();
       expect(within(rows[2]!).getByText("#2")).toBeInTheDocument();
-      expect(within(rows[2]!).getByText("7.1%")).toBeInTheDocument();
-      expect(within(rows[2]!).getByText("₹2,50,000")).toBeInTheDocument();
+      expect(within(rows[2]!).getByText("0.0%")).toBeInTheDocument();
+      expect(within(rows[2]!).getAllByText("₹0").length).toBeGreaterThan(0);
     });
 
     it("filters executive leaderboard via search input", () => {
@@ -307,8 +312,8 @@ describe("Performance Analytics UI & Calculations", () => {
 
       const kavyaCard = screen.getByTestId("exec-card-4");
       expect(within(kavyaCard).getByText("Kavya Nair")).toBeInTheDocument();
-      expect(within(kavyaCard).getByText("7.1%")).toBeInTheDocument();
-      expect(within(kavyaCard).getByText("₹2,50,000")).toBeInTheDocument();
+      expect(within(kavyaCard).getByText("0.0%")).toBeInTheDocument();
+      expect(within(kavyaCard).getAllByText("₹0").length).toBeGreaterThan(0);
     });
 
     it("handles onNavigateTargets callback when clicked", () => {

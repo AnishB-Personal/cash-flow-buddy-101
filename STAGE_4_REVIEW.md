@@ -197,14 +197,30 @@ Stage 4 target fixtures are **additive and isolated** — they do not alter invo
 | Unbilled Orders | ₹2,95,000 | ✓ |
 | Reporting / Aging Date | 30 April 2026 | ✓ |
 
-### Stage 4 Demo Target Fixtures (FY 2025-26)
-| Executive | Yearly Target | Achievement Basis (exclusive_amount) | Achievement % |
-|-----------|--------------|--------------------------------------|---------------|
-| Amit Sharma | ₹12,00,000 | ₹4,31,000 | 35.9% |
-| Priya Patel | ₹10,00,000 | ₹1,00,000 | 10.0% |
-| Ravi Kumar | ₹8,00,000 | ₹0 | 0.0% |
+### Stage 4 Demo Target Fixtures (Multi-Year Coverage)
 
-Reset Demo restores all of the above to the approved baseline state.
+#### FY 2026-27 (Primary Demo FY)
+| Executive | User ID | Yearly Target | Achievement Basis (exclusive_amount) | Achievement % | Notes |
+|-----------|---------|--------------|--------------------------------------|---------------|-------|
+| Neha Rao (`siliya`) | 3 | ₹40,00,000 | ₹4,50,000 (INV-2026-042 pre-GST) | 11.3% | Sole issued invoice in FY 2026-27 |
+| Kavya Nair (`syama`) | 4 | ₹35,00,000 | ₹0 | 0.0% | PO-NEXUS-881 (₹2,50,000) is unbilled order; strictly excluded |
+| Arjun Mehta (`anshar`) | 5 | Unassigned | ₹0 | 0.0% | Available for target creation |
+
+#### FY 2025-26 (Historical FY Fixtures)
+| Executive | User ID | Yearly Target | Achievement Basis (exclusive_amount) | Achievement % | Notes |
+|-----------|---------|--------------|--------------------------------------|---------------|-------|
+| Neha Rao (`siliya`) | 3 | ₹36,00,000 | ₹0 | 0.0% | Historical target baseline |
+| Kavya Nair (`syama`) | 4 | ₹30,00,000 | ₹0 | 0.0% | Historical target baseline |
+| Arjun Mehta (`anshar`) | 5 | ₹25,00,000 | ₹0 | 0.0% | Historical target baseline |
+
+Reset Demo restores all of the above to the approved baseline state along with all 7 financial invariants:
+- Total Invoiced: ₹5,31,00,0
+- Cash Collected: ₹2,00,000
+- TDS Recognized: ₹9,000
+- Total Settled: ₹2,09,000
+- Outstanding Receivables: ₹3,22,000
+- Unbilled Orders: ₹2,95,000
+- Reporting / Aging Date: 30 April 2026
 
 ---
 
@@ -227,25 +243,25 @@ Reset Demo restores all of the above to the approved baseline state.
 
 ```
 Test Files  25 passed (25)
-     Tests  329 passed (329)
-  Start at  18:02:00
-  Duration  26.36s
+     Tests  331 passed (331)
+  Start at  02:30:47
+  Duration  18.63s
 ```
 
 ### Stage 4 Test Coverage
 | Suite | Tests | Coverage |
 |-------|-------|----------|
-| `targets.test.ts` | ~89 | Data models, Zod validation, auto-derivation, achievement calc, fixture integrity |
-| `targets-ui.test.tsx` | ~48 | 4-step workflow, RBAC guard, discard dialog, custom input guard |
-| `analytics.test.tsx` | ~62 | KPI cards, leaderboard sort, period breakdown, empty states |
-| `app-routing.test.tsx` | +1 | `/sales-targets` route assertion |
+| `targets.test.ts` | 30 | Data models, Zod validation, auto-derivation, achievement calc, fixture integrity |
+| `targets-ui.test.tsx` | 27 | 4-step workflow, RBAC guard, discard dialog, custom input guard, CF4-04 & CF4-05 regression |
+| `analytics.test.tsx` | 10 | Summary KPI cards, leaderboard sort, period breakdown, unbilled PO exclusion, dashboard integration |
+| `app-routing.test.tsx` | 5 | `/sales-targets` and `/performance-analytics` route assertions |
 
 ---
 
 ## 11. Playwright Viewport Results
 
 ```
-105 passed (4.8m)
+105 passed (3.9m)
 ```
 
 | Spec | Tests | Result |
@@ -285,20 +301,25 @@ Test Files  25 passed (25)
 
 ---
 
-## 13. Known Limitations & Gaps
+## 13. Independent Browser Verification Resolutions (CF4-01 through CF4-05)
+
+| Issue ID | Severity | Root Cause | Implemented Fix |
+|----------|----------|------------|-----------------|
+| **CF4-01** | MEDIUM | `/performance-analytics` route was not registered in TanStack Router; existed only as a tab inside Sales Targets | Created `src/routes/performance-analytics.tsx`, registered `Performance Analytics` in `Screen` union and sidebar navigation, wired direct route and view switches |
+| **CF4-02** | HIGH | Sales achievement calculation was including unbilled purchase orders (specifically PO-NEXUS-881 for Kavya ₹2,50,000), inflating team achievement to ₹7,00,000 (9.3%) | Excluded unbilled orders by checking `invoice_number` and status in `calculateExecutiveAchievement` and `PerformanceAnalytics` active invoices filter. Kavya achieved: ₹0 (0.0%), Team achieved: ₹4,50,000 (6.0%), Remaining: ₹70,50,000 |
+| **CF4-03** | HIGH | FY 2025-26 target fixtures were missing from baseline data, and documented names (Amit/Priya/Ravi) did not match actual backend users (Neha id:3, Kavya id:4, Arjun id:5) | Seeded 3 baseline targets for FY 2025-26 for existing sales users (`siliya`, `syama`, `anshar`) with realistic targets and ₹0 historical achievement (no fabricated invoices) |
+| **CF4-04** | LOW | Negative input `-1` in target drawer was silently coerced to `0` without validation feedback | Preserved raw numeric input, added inline validation `Yearly target must be greater than or equal to 0.00`, blocked Proceed to Review on negative values |
+| **CF4-05** | LOW | "Zero Target" preset button left stale sub-period overrides active in drawer state | Cleaned drawer breakdown overrides upon selecting Zero Target preset, setting all sub-period fields cleanly to ₹0 |
+
+---
+
+## 14. Known Limitations & Gaps
 
 1. **Target deletion** — no `DELETE` endpoint exists in FastAPI; delete action is not exposed in UI.
 2. **Per-customer target allocation** — backend assigns targets per `user_id`; customer-level targets are out of scope.
 3. **Real-time achievement** — demo uses static mock `exclusive_amount` totals; live recalculation requires API integration.
 4. **Historical trend charts** — deferred; only current FY data in mock dataset.
-5. **Multiple FY switching** — UI supports FY selector but demo fixtures cover FY 2025-26 only.
-6. **Role switching is simulated** — frontend RBAC reflects backend rules but is not production-grade enforcement.
-
----
-
-## 14. Final Git Commit SHA
-
-`7d4984d` (amends `2a2bec4` / `a4c08b6` / `70145cc`) — `feature/phase3-stage4-sales-targets-analytics`
+5. **Role switching is simulated** — frontend RBAC reflects backend rules but is not production-grade enforcement.
 
 ---
 
@@ -306,11 +327,12 @@ Test Files  25 passed (25)
 
 | Gate | Result |
 |------|--------|
-| `npm test` (329 tests, 25 files) | ✅ PASS |
+| `npm test` (331 tests, 25 files) | ✅ PASS |
 | `npx tsc --noEmit` | ✅ PASS (0 errors) |
 | `npm run build` | ✅ PASS (clean Nitro cloudflare-module) |
 | Playwright (105 tests, 4 viewports) | ✅ PASS |
 | Financial invariants preserved | ✅ PASS |
+| CF4-01 through CF4-05 verified | ✅ PASS |
 | CF3-05 mobile preview persistence | ✅ PASS |
 | CF3-02 drawer containment | ✅ PASS |
 | Stage 0–3 regression | ✅ PASS |

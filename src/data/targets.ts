@@ -158,7 +158,7 @@ export function calculateExecutiveAchievement(
   invoices: InvoiceSummary[],
   target: number,
   fyCode: string,
-  options?: { onlyIssued?: boolean; useTotalAmount?: boolean },
+  options?: { includeUnbilled?: boolean; useTotalAmount?: boolean },
 ): {
   actual_sales: number;
   achievement_pct: number;
@@ -171,7 +171,9 @@ export function calculateExecutiveAchievement(
     if (inv.fy_code !== fyCode) return false;
     const status = (inv.computed_status ?? inv.payment_status ?? "").toUpperCase();
     if (status === "CANCELLED") return false;
-    if (options?.onlyIssued && !inv.invoice_number?.trim() && status === "UNBILLED") return false;
+    // Strictly exclude unbilled purchase orders unless explicitly requested:
+    // Only issued, non-cancelled invoices with an invoice number qualify for sales achievement.
+    if (!options?.includeUnbilled && (!inv.invoice_number?.trim() || status === "UNBILLED")) return false;
     return true;
   });
 
@@ -210,6 +212,7 @@ function getUserName(userId: number): string {
 }
 
 export const INITIAL_TARGETS: SalesTarget[] = [
+  // FY 2026-27 (Active default financial year)
   {
     id: 1,
     user_id: 3,
@@ -237,6 +240,49 @@ export const INITIAL_TARGETS: SalesTarget[] = [
     yearly_bottom_line: 0,
     created_at: "2026-04-01T00:00:00Z",
     updated_at: "2026-04-01T00:00:00Z",
+  },
+  // FY 2025-26 (Prior financial year fixtures for cross-FY verification)
+  {
+    id: 3,
+    user_id: 3,
+    user_name: "Neha Rao",
+    fy_code: "FY 2025-26",
+    yearly_target: 3600000,
+    half_yearly_target: 1800000,
+    quarterly_target: 900000,
+    monthly_target: 300000,
+    monthly_bottom_line: 0,
+    yearly_bottom_line: 0,
+    created_at: "2025-04-01T00:00:00Z",
+    updated_at: "2025-04-01T00:00:00Z",
+  },
+  {
+    id: 4,
+    user_id: 4,
+    user_name: "Kavya Nair",
+    fy_code: "FY 2025-26",
+    yearly_target: 3000000,
+    half_yearly_target: 1500000,
+    quarterly_target: 750000,
+    monthly_target: 250000,
+    monthly_bottom_line: 0,
+    yearly_bottom_line: 0,
+    created_at: "2025-04-01T00:00:00Z",
+    updated_at: "2025-04-01T00:00:00Z",
+  },
+  {
+    id: 5,
+    user_id: 5,
+    user_name: "Arjun Mehta",
+    fy_code: "FY 2025-26",
+    yearly_target: 2400000,
+    half_yearly_target: 1200000,
+    quarterly_target: 600000,
+    monthly_target: 200000,
+    monthly_bottom_line: 0,
+    yearly_bottom_line: 0,
+    created_at: "2025-04-01T00:00:00Z",
+    updated_at: "2025-04-01T00:00:00Z",
   },
 ];
 
@@ -384,7 +430,7 @@ export function getExecutivePerformanceList(
   targets: SalesTarget[],
   invoices: InvoiceSummary[],
   fyCode: string,
-  options?: { onlyIssued?: boolean; useTotalAmount?: boolean },
+  options?: { includeUnbilled?: boolean; useTotalAmount?: boolean },
 ): ExecutivePerformance[] {
   const salesUsers = fixtures.users.filter((u) => u.role === "sales");
 
@@ -401,7 +447,7 @@ export function getExecutivePerformanceList(
       if (inv.executive_id !== user.id) return false;
       const status = (inv.computed_status ?? inv.payment_status ?? "").toUpperCase();
       if (status === "CANCELLED") return false;
-      if (options?.onlyIssued && !inv.invoice_number?.trim() && status === "UNBILLED") return false;
+      if (!options?.includeUnbilled && (!inv.invoice_number?.trim() || status === "UNBILLED")) return false;
       return true;
     });
 

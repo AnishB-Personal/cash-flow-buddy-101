@@ -52,7 +52,7 @@ export function TargetDrawer({
     3;
   const initialFy = target?.fy_code ?? fy;
   const initialYearly = initialZero ? 0 : (target?.yearly_target ?? 4000000);
-  const initialBreakdown = deriveTargetBreakdown(initialYearly, target ?? undefined);
+  const initialBreakdown = deriveTargetBreakdown(initialYearly, initialZero ? undefined : (target ?? undefined));
 
   const [input, setInput] = useState<TargetUpdateInput>({
     user_id: initialUser,
@@ -104,12 +104,16 @@ export function TargetDrawer({
   }
 
   function handleYearlyChange(yearly: number) {
-    const validYearly = isNaN(yearly) ? 0 : Math.max(0, yearly);
+    // Preserve the raw value entered by the user (do not silently coerce negative numbers to zero).
+    // Validate negative values immediately and display an inline error.
+    const isNegative = !isNaN(yearly) && yearly < 0;
+    const isInvalid = isNaN(yearly);
+
     if (!customOverride) {
-      const breakdown = deriveTargetBreakdown(validYearly);
+      const breakdown = deriveTargetBreakdown(Math.max(0, isInvalid ? 0 : yearly));
       setInput(prev => ({
         ...prev,
-        yearly_target: validYearly,
+        yearly_target: yearly,
         half_yearly_target: breakdown.half_yearly_target,
         quarterly_target: breakdown.quarterly_target,
         monthly_target: breakdown.monthly_target,
@@ -119,11 +123,22 @@ export function TargetDrawer({
     } else {
       setInput(prev => ({
         ...prev,
-        yearly_target: validYearly,
+        yearly_target: yearly,
       }));
     }
     setDirty(true);
-    if (errors['yearly_target']) {
+
+    if (isNegative) {
+      setErrors(prev => ({
+        ...prev,
+        yearly_target: 'Yearly target must be greater than or equal to 0.00',
+      }));
+    } else if (isInvalid) {
+      setErrors(prev => ({
+        ...prev,
+        yearly_target: 'Please enter a valid numeric target amount',
+      }));
+    } else if (errors['yearly_target']) {
       setErrors(prev => {
         const next = { ...prev };
         delete next['yearly_target'];
@@ -136,7 +151,7 @@ export function TargetDrawer({
     setCustomOverride(enabled);
     setDirty(true);
     if (!enabled) {
-      const breakdown = deriveTargetBreakdown(input.yearly_target);
+      const breakdown = deriveTargetBreakdown(Math.max(0, input.yearly_target || 0));
       setInput(prev => ({
         ...prev,
         half_yearly_target: breakdown.half_yearly_target,
@@ -150,6 +165,7 @@ export function TargetDrawer({
 
   function applyPreset(amount: number) {
     setCustomOverride(false);
+    // Derive fresh sub-period breakdown with zero overrides for presets to avoid stale values
     const breakdown = deriveTargetBreakdown(amount);
     setInput(prev => ({
       ...prev,

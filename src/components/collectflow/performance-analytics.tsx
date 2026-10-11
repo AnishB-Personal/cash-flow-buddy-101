@@ -65,12 +65,13 @@ export function PerformanceAnalytics({
 
   // Strict Calculation Adherence:
   // Actual achievement is strictly derived from net taxable revenue (exclusive_amount before GST).
-  // Cancelled invoices are excluded completely.
+  // Cancelled invoices and unbilled purchase orders are excluded completely.
   const activeInvoices: InvoiceSummary[] = useMemo(() => {
     return allRecords.filter((inv) => {
       if (inv.fy_code !== activeFy) return false;
       const status = (inv.computed_status ?? inv.payment_status ?? '').toUpperCase();
       if (status === 'CANCELLED') return false;
+      if (!inv.invoice_number?.trim() || status === 'UNBILLED') return false;
       return true;
     });
   }, [allRecords, activeFy]);

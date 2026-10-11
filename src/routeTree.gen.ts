@@ -16,6 +16,7 @@ import { Route as DesignComparisonRouteImport } from './routes/design-comparison
 import { Route as InvoicesRouteImport } from './routes/invoices'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as PaymentsRouteImport } from './routes/payments'
+import { Route as PerformanceAnalyticsRouteImport } from './routes/performance-analytics'
 import { Route as SalesTargetsRouteImport } from './routes/sales-targets'
 import { Route as SettingsRouteImport } from './routes/settings'
 
@@ -54,6 +55,11 @@ const PaymentsRoute = PaymentsRouteImport.update({
   path: '/payments',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PerformanceAnalyticsRoute = PerformanceAnalyticsRouteImport.update({
+  id: '/performance-analytics',
+  path: '/performance-analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SalesTargetsRoute = SalesTargetsRouteImport.update({
   id: '/sales-targets',
   path: '/sales-targets',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
+  '/performance-analytics': typeof PerformanceAnalyticsRoute
   '/sales-targets': typeof SalesTargetsRoute
   '/settings': typeof SettingsRoute
 }
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
+  '/performance-analytics': typeof PerformanceAnalyticsRoute
   '/sales-targets': typeof SalesTargetsRoute
   '/settings': typeof SettingsRoute
 }
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/invoices': typeof InvoicesRoute
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
+  '/performance-analytics': typeof PerformanceAnalyticsRoute
   '/sales-targets': typeof SalesTargetsRoute
   '/settings': typeof SettingsRoute
 }
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/invoices'
     | '/orders'
     | '/payments'
+    | '/performance-analytics'
     | '/sales-targets'
     | '/settings'
   fileRoutesByTo: FileRoutesByTo
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/invoices'
     | '/orders'
     | '/payments'
+    | '/performance-analytics'
     | '/sales-targets'
     | '/settings'
   id:
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/invoices'
     | '/orders'
     | '/payments'
+    | '/performance-analytics'
     | '/sales-targets'
     | '/settings'
   fileRoutesById: FileRoutesById
@@ -143,6 +155,7 @@ export interface RootRouteChildren {
   InvoicesRoute: typeof InvoicesRoute
   OrdersRoute: typeof OrdersRoute
   PaymentsRoute: typeof PaymentsRoute
+  PerformanceAnalyticsRoute: typeof PerformanceAnalyticsRoute
   SalesTargetsRoute: typeof SalesTargetsRoute
   SettingsRoute: typeof SettingsRoute
 }
@@ -198,6 +211,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PaymentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/performance-analytics': {
+      id: '/performance-analytics'
+      path: '/performance-analytics'
+      fullPath: '/performance-analytics'
+      preLoaderRoute: typeof PerformanceAnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sales-targets': {
       id: '/sales-targets'
       path: '/sales-targets'
@@ -223,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   InvoicesRoute: InvoicesRoute,
   OrdersRoute: OrdersRoute,
   PaymentsRoute: PaymentsRoute,
+  PerformanceAnalyticsRoute: PerformanceAnalyticsRoute,
   SalesTargetsRoute: SalesTargetsRoute,
   SettingsRoute: SettingsRoute,
 }

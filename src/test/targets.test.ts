@@ -229,17 +229,20 @@ describe("Sales Targets — Data Layer & Calculations", () => {
       expect(result.outstanding).toBe(0);
     });
 
-    it("respects onlyIssued option to exclude unbilled POs if requested", () => {
-      // Executive 4 has 1 unbilled PO
-      const withUnbilled = calculateExecutiveAchievement(4, mockInvoices, 3500000, "FY 2026-27");
-      expect(withUnbilled.actual_sales).toBe(250000);
-      expect(withUnbilled.order_count).toBe(1);
+    it("excludes unbilled purchase orders by default and only includes issued invoices", () => {
+      // Executive 4 has 1 unbilled PO in mockInvoices: should be 0 actual sales by default
+      const defaultAchievement = calculateExecutiveAchievement(4, mockInvoices, 3500000, "FY 2026-27");
+      expect(defaultAchievement.actual_sales).toBe(0);
+      expect(defaultAchievement.achievement_pct).toBe(0.0);
+      expect(defaultAchievement.order_count).toBe(0);
+      expect(defaultAchievement.remaining_target).toBe(3500000);
 
-      const onlyIssued = calculateExecutiveAchievement(4, mockInvoices, 3500000, "FY 2026-27", {
-        onlyIssued: true,
+      // When explicitly requested via includeUnbilled: true, unbilled PO can be included for pipeline analysis
+      const pipelineAchievement = calculateExecutiveAchievement(4, mockInvoices, 3500000, "FY 2026-27", {
+        includeUnbilled: true,
       });
-      expect(onlyIssued.actual_sales).toBe(0);
-      expect(onlyIssued.order_count).toBe(0);
+      expect(pipelineAchievement.actual_sales).toBe(250000);
+      expect(pipelineAchievement.order_count).toBe(1);
     });
   });
 
@@ -256,10 +259,10 @@ describe("Sales Targets — Data Layer & Calculations", () => {
   });
 
   describe("createTargetAdapter In-Memory Store", () => {
-    it("seeds initial targets from collectflow.json baseline", () => {
+    it("seeds initial targets from collectflow.json baseline and multi-year coverage", () => {
       const adapter = createTargetAdapter();
       const targets = adapter.listTargets();
-      expect(targets).toHaveLength(2);
+      expect(targets).toHaveLength(5);
 
       const neha = adapter.getTarget(3, "FY 2026-27");
       expect(neha).not.toBeNull();
@@ -272,12 +275,16 @@ describe("Sales Targets — Data Layer & Calculations", () => {
       expect(kavya?.user_name).toBe("Kavya Nair");
       expect(kavya?.yearly_target).toBe(3500000);
       expect(kavya?.monthly_target).toBe(291666.67);
+
+      const neha25 = adapter.getTarget(3, "FY 2025-26");
+      expect(neha25).not.toBeNull();
+      expect(neha25?.yearly_target).toBe(3600000);
     });
 
     it("filters targets by financial year", () => {
       const adapter = createTargetAdapter();
       expect(adapter.listTargets("FY 2026-27")).toHaveLength(2);
-      expect(adapter.listTargets("FY 2025-26")).toHaveLength(0);
+      expect(adapter.listTargets("FY 2025-26")).toHaveLength(3);
     });
 
     it("returns null for unconfigured user", () => {
@@ -300,7 +307,8 @@ describe("Sales Targets — Data Layer & Calculations", () => {
 
       const retrieved = adapter.getTarget(3, "FY 2026-27");
       expect(retrieved?.yearly_target).toBe(4800000);
-      expect(adapter.listTargets()).toHaveLength(2); // no duplicates created
+      expect(adapter.listTargets()).toHaveLength(5); // no duplicates created across FYs
+      expect(adapter.listTargets("FY 2026-27")).toHaveLength(2);
     });
 
     it("creates a new target for previously unassigned executive", () => {
@@ -315,7 +323,8 @@ describe("Sales Targets — Data Layer & Calculations", () => {
       expect(created.user_name).toBe("Arjun Mehta");
       expect(created.yearly_target).toBe(3000000);
       expect(created.monthly_target).toBe(250000);
-      expect(adapter.listTargets()).toHaveLength(3);
+      expect(adapter.listTargets()).toHaveLength(6);
+      expect(adapter.listTargets("FY 2026-27")).toHaveLength(3);
     });
 
     it("reset() restores baseline targets after mutations", () => {
@@ -329,7 +338,8 @@ describe("Sales Targets — Data Layer & Calculations", () => {
 
       adapter.reset();
       expect(adapter.getTarget(3)?.yearly_target).toBe(4000000);
-      expect(adapter.listTargets()).toHaveLength(2);
+      expect(adapter.listTargets()).toHaveLength(5);
+      expect(adapter.listTargets("FY 2026-27")).toHaveLength(2);
     });
   });
 
@@ -437,8 +447,8 @@ describe("Sales Targets — Data Layer & Calculations", () => {
         wrapper: MockSessionProvider,
       });
 
-      expect(result.current.targets).toHaveLength(2);
-      expect(result.current.targets.find((t) => t.user_id === 3)?.yearly_target).toBe(4000000);
+      expect(result.current.targets).toHaveLength(5);
+      expect(result.current.targets.find((t) => t.user_id === 3 && t.fy_code === "FY 2026-27")?.yearly_target).toBe(4000000);
 
       await act(async () => {
         await result.current.confirmTarget({
@@ -448,13 +458,13 @@ describe("Sales Targets — Data Layer & Calculations", () => {
         });
       });
 
-      expect(result.current.targets.find((t) => t.user_id === 3)?.yearly_target).toBe(5000000);
+      expect(result.current.targets.find((t) => t.user_id === 3 && t.fy_code === "FY 2026-27")?.yearly_target).toBe(5000000);
 
       await act(async () => {
         result.current.resetDemo();
       });
 
-      expect(result.current.targets.find((t) => t.user_id === 3)?.yearly_target).toBe(4000000);
+      expect(result.current.targets.find((t) => t.user_id === 3 && t.fy_code === "FY 2026-27")?.yearly_target).toBe(4000000);
     });
 
     it("blocks sales role from confirming targets", async () => {
@@ -481,9 +491,9 @@ describe("Sales Targets — Data Layer & Calculations", () => {
       });
 
       // Directly on targetAdapter
-      expect(result.current.targetAdapter.listTargets()).toHaveLength(2);
+      expect(result.current.targetAdapter.listTargets()).toHaveLength(5);
       // Via targetAdapter.current
-      expect(result.current.targetAdapter.current.listTargets()).toHaveLength(2);
+      expect(result.current.targetAdapter.current.listTargets()).toHaveLength(5);
     });
   });
 });
