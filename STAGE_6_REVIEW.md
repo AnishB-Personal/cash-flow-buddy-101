@@ -480,13 +480,14 @@ In adherence to the integrity mandate, all known boundaries, intentional deviati
 ## 15. Verification Commands & Final Git Commit SHA
 
 ### Git Checkpoint
-- **Base Checkpoint Commit SHA:** `8b71103d19674458bc0aa4b47e0cc157a805c139`
+- **Base Checkpoint Commit SHA:** `8b71103d19674458bc0aa4b47e0cc157a805c139` (Stage 5 approved)
+- **Final Stage 6 Commit SHA:** `959b87530353e9cc6e0a1d996ee17ed6159ff150`
 - **Active Branch:** `feature/phase3-stage6-reports-exports-uat`
 - **Verification Command:**
   ```bash
   git log -n 1 --format="%H %s"
   ```
-  *Output:* `8b71103d19674458bc0aa4b47e0cc157a805c139 fix(stage5): cascade sales target deletion on user delete and verify Playwright suite`
+  *Output:* `959b87530353e9cc6e0a1d996ee17ed6159ff150 feat(phase3-stage6): implement reports hub, backend export workflows and multi-stage UAT`
 
 ### Verification Commands & Reproducibility Matrix
 
