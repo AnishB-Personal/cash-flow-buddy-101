@@ -742,6 +742,9 @@ describe("Stage 6 Independent UAT Defect Corrections (CF6-01 through CF6-04)", (
         customer_id: 1,
         executive_id: 3,
         customer_name: "Acme Cloud Solutions Pvt Ltd",
+        customer_gstin: "27AABCA1234A1Z5",
+        customer_address: "Plot 42, Tech Park, Andheri East, Mumbai, Maharashtra - 400069",
+        customer_state: "Maharashtra",
         currency: "INR",
         exchange_rate: 1.0,
         original_amount: 100000.0,
@@ -792,6 +795,9 @@ describe("Stage 6 Independent UAT Defect Corrections (CF6-01 through CF6-04)", (
         customer_id: 1,
         executive_id: 3,
         customer_name: "Acme Cloud Solutions Pvt Ltd",
+        customer_gstin: "27AABCA1234A1Z5",
+        customer_address: "Plot 42, Tech Park, Andheri East, Mumbai, Maharashtra - 400069",
+        customer_state: "Maharashtra",
         currency: "INR",
         exchange_rate: 1.0,
         original_amount: 100000.0,
@@ -815,7 +821,7 @@ describe("Stage 6 Independent UAT Defect Corrections (CF6-01 through CF6-04)", (
       };
 
       const rows = compileExportRows([...fixtureData.invoices, cancelledInvoice], "ALL");
-      const zipBytes = generateXlsxZipBytes(rows, "ALL");
+      const zipBytes = generateXlsxZipBytes(rows);
       const filePath = "/tmp/collectflow_cancelled_test.xlsx";
       fs.writeFileSync(filePath, zipBytes);
 
