@@ -691,3 +691,236 @@ describe("ExportDrawer — 5-Step Workflow UI Component Tests", () => {
     expect(generateBtn).toBeDisabled();
   });
 });
+
+describe("Stage 6 Independent UAT Defect Corrections (CF6-01 through CF6-04)", () => {
+  // CF6-01: Split Recognized AR vs Unbilled Orders in Preview and Review
+  describe("CF6-01: Recognized AR vs Unbilled Orders Split", () => {
+    it("derives recognizedOutstanding (₹3,22,000) and unbilledOutstanding (₹2,95,000) separately from raw totals", () => {
+      const rows = compileExportRows(fixtureData.invoices, "ALL");
+      const totals = calculateExportTotals(rows);
+
+      expect(totals.recognizedOutstanding).toBe(322000.0);
+      expect(totals.unbilledOutstanding).toBe(295000.0);
+      expect(totals.totalOutstanding).toBe(617000.0);
+      expect(totals.totalInvoiced).toBe(531000.0);
+    });
+
+    it("presents distinct Recognized AR and Unbilled Orders cards in Step 2 Preview and Step 3 Review", () => {
+      render(
+        React.createElement(
+          DrawerWrapper,
+          { role: "admin" },
+          React.createElement(ExportDrawer, { close: () => {} }),
+        ),
+      );
+
+      // Step 1 -> Step 2 Preview
+      fireEvent.click(screen.getByText("Continue to Preview"));
+      expect(screen.getByText("Recognized AR")).toBeDefined();
+      expect(screen.getByText("Unbilled Orders")).toBeDefined();
+      expect(screen.getAllByText("₹3,22,000.00").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("₹2,95,000.00").length).toBeGreaterThanOrEqual(1);
+
+      // Step 2 -> Step 3 Review
+      fireEvent.click(screen.getByText("Review Columns & Totals"));
+      expect(screen.getByText("Balance Outstanding")).toBeDefined();
+      expect(screen.getByText("Recognized Accounts Receivable")).toBeDefined();
+      expect(screen.getByText("Unbilled Orders (Gross)")).toBeDefined();
+      expect(screen.getByText("Pending Commercial Invoice")).toBeDefined();
+    });
+  });
+
+  // CF6-02: Cancelled Invoice Retention in Raw Export
+  describe("CF6-02: Cancelled Invoice Retention in Raw Export", () => {
+    it("retains CANCELLED invoices in raw export with status CANCELLED, 0 outstanding, and 0 days overdue", () => {
+      const cancelledInvoice: Invoice = {
+        id: 103,
+        fy_code: "FY 2026-27",
+        order_type: "PO",
+        po_number: "PO-CANCEL-001",
+        po_date: "2026-04-11",
+        customer_id: 1,
+        executive_id: 3,
+        customer_name: "Acme Cloud Solutions Pvt Ltd",
+        currency: "INR",
+        exchange_rate: 1.0,
+        original_amount: 100000.0,
+        exclusive_amount: 100000.0,
+        tax_rate: 0.18,
+        tax_amount: 18000.0,
+        total_amount: 118000.0,
+        invoice_number: "INV-2026-041",
+        invoice_date: "2026-04-12",
+        due_date: "2026-04-25",
+        remarks: "Cancelled prior to payment",
+        payment_status: "CANCELLED",
+        total_cash_paid: 0.0,
+        total_tds_deducted: 0.0,
+        total_paid: 0.0,
+        outstanding_balance: 118000.0, // raw legacy balance before cancellation
+        computed_status: "CANCELLED",
+        executive_name: "Neha Rao",
+        line_items: [],
+        payments: [],
+      };
+
+      const dataset = [...fixtureData.invoices, cancelledInvoice];
+      const rows = compileExportRows(dataset, "ALL");
+      expect(rows).toHaveLength(3);
+
+      const cancelledRow = rows.find((r) => r["Invoice Number"] === "INV-2026-041");
+      expect(cancelledRow).toBeDefined();
+      expect(cancelledRow?.Status).toBe("CANCELLED");
+      expect(cancelledRow?.["Balance Outstanding (₹)"]).toBe(0.0);
+      expect(cancelledRow?.["Days Overdue"]).toBe(0);
+
+      // Verify financial totals exclude cancelled invoice from revenue and receivables
+      const totals = calculateExportTotals(rows);
+      expect(totals.totalInvoiced).toBe(531000.0);
+      expect(totals.recognizedOutstanding).toBe(322000.0);
+      expect(totals.unbilledOutstanding).toBe(295000.0);
+      expect(totals.totalOutstanding).toBe(617000.0);
+    });
+
+    it("programmatically verifies XLSX with openpyxl confirms 17 columns and cancelled row zero outstanding", () => {
+      const cancelledInvoice: Invoice = {
+        id: 103,
+        fy_code: "FY 2026-27",
+        order_type: "PO",
+        po_number: "PO-CANCEL-001",
+        po_date: "2026-04-11",
+        customer_id: 1,
+        executive_id: 3,
+        customer_name: "Acme Cloud Solutions Pvt Ltd",
+        currency: "INR",
+        exchange_rate: 1.0,
+        original_amount: 100000.0,
+        exclusive_amount: 100000.0,
+        tax_rate: 0.18,
+        tax_amount: 18000.0,
+        total_amount: 118000.0,
+        invoice_number: "INV-2026-041",
+        invoice_date: "2026-04-12",
+        due_date: "2026-04-25",
+        remarks: "Cancelled",
+        payment_status: "CANCELLED",
+        total_cash_paid: 0.0,
+        total_tds_deducted: 0.0,
+        total_paid: 0.0,
+        outstanding_balance: 118000.0,
+        computed_status: "CANCELLED",
+        executive_name: "Neha Rao",
+        line_items: [],
+        payments: [],
+      };
+
+      const rows = compileExportRows([...fixtureData.invoices, cancelledInvoice], "ALL");
+      const zipBytes = generateXlsxZipBytes(rows, "ALL");
+      const filePath = "/tmp/collectflow_cancelled_test.xlsx";
+      fs.writeFileSync(filePath, zipBytes);
+
+      const pyScript = `
+import openpyxl, warnings
+with warnings.catch_warnings(record=True) as w:
+    warnings.simplefilter('always')
+    wb = openpyxl.load_workbook('${filePath}')
+    assert len(w) == 0, f'Unexpected warnings: {[str(x) for x in w]}'
+
+ws = wb.active
+assert ws.max_column == 17
+assert ws.max_row == 4 # Header + 3 rows
+
+# Check cancelled row (row 4)
+cancelled_num = ws.cell(4, 9).value # Invoice Number
+assert cancelled_num == 'INV-2026-041'
+status = ws.cell(4, 16).value # Status
+assert status == 'CANCELLED'
+balance = ws.cell(4, 15).value # Balance Outstanding
+assert balance == 0.0
+days = ws.cell(4, 17).value # Days Overdue
+assert days == 0
+
+print('CANCELLED_VERIFIED')
+`;
+      const pyScriptPath = "/tmp/collectflow_cancelled_verify.py";
+      fs.writeFileSync(pyScriptPath, pyScript);
+      const out = execSync(`python3 ${pyScriptPath}`).toString().trim();
+      expect(out).toBe("CANCELLED_VERIFIED");
+    });
+  });
+
+  // CF6-03: Mobile Export Preview Overflow
+  describe("CF6-03: Mobile Export Preview Responsiveness", () => {
+    it("renders both cf-table-container and cf-mobile-cards in Step 2 Preview", () => {
+      render(
+        React.createElement(
+          DrawerWrapper,
+          { role: "admin" },
+          React.createElement(ExportDrawer, { close: () => {} }),
+        ),
+      );
+
+      fireEvent.click(screen.getByText("Continue to Preview"));
+
+      const tableContainer = document.querySelector(".cf-table-container");
+      const mobileCards = document.querySelector(".cf-mobile-cards");
+
+      expect(tableContainer).not.toBeNull();
+      expect(mobileCards).not.toBeNull();
+
+      const cards = document.querySelectorAll(".cf-mobile-cards .cf-record-card");
+      expect(cards.length).toBe(fixtureData.invoices.length);
+    });
+  });
+
+  // CF6-04: Executive Attainment Search
+  describe("CF6-04: Executive Attainment Search Filtering", () => {
+    it("filters executive attainment by query, returning 0 records on CF6-NO-MATCH and restoring on reset", async () => {
+      const { getExecutiveAttainmentReport } = await import("@/data/reporting");
+      const { INITIAL_TARGETS } = await import("@/data/targets");
+
+      // Baseline: FY 2025-26 has 3 executives (Neha, Kavya, Arjun)
+      const baseRep = getExecutiveAttainmentReport(fixtureData.invoices, INITIAL_TARGETS, {
+        fy: "FY 2025-26",
+      });
+      expect(baseRep.rows).toHaveLength(3);
+      expect(baseRep.summary.executive_count).toBe(3);
+      expect(baseRep.summary.is_filtered).toBe(false);
+
+      // Search for non-existent executive
+      const noMatchRep = getExecutiveAttainmentReport(fixtureData.invoices, INITIAL_TARGETS, {
+        fy: "FY 2025-26",
+        query: "CF6-NO-MATCH",
+      });
+      expect(noMatchRep.rows).toHaveLength(0);
+      expect(noMatchRep.summary.executive_count).toBe(0);
+      expect(noMatchRep.summary.total_target).toBe(0);
+      expect(noMatchRep.summary.is_filtered).toBe(true);
+
+      // Search for specific executive by name
+      const nehaRep = getExecutiveAttainmentReport(fixtureData.invoices, INITIAL_TARGETS, {
+        fy: "FY 2025-26",
+        query: "Neha",
+      });
+      expect(nehaRep.rows).toHaveLength(1);
+      expect(nehaRep.rows[0]?.executive_name).toBe("Neha Rao");
+      expect(nehaRep.summary.executive_count).toBe(1);
+
+      // Search by username
+      const siliyaRep = getExecutiveAttainmentReport(fixtureData.invoices, INITIAL_TARGETS, {
+        fy: "FY 2025-26",
+        query: "siliya",
+      });
+      expect(siliyaRep.rows).toHaveLength(1);
+      expect(siliyaRep.rows[0]?.executive_name).toBe("Neha Rao");
+
+      // Search by user ID
+      const idRep = getExecutiveAttainmentReport(fixtureData.invoices, INITIAL_TARGETS, {
+        fy: "FY 2025-26",
+        query: "5",
+      });
+      expect(idRep.rows).toHaveLength(1);
+      expect(idRep.rows[0]?.executive_name).toBe("Arjun Mehta");
+    });
+  });
+});

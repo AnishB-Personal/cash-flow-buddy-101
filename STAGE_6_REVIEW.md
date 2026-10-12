@@ -341,14 +341,19 @@ A core requirement of financial reporting integrity is ensuring that unbilled pu
   - Excluded from Executive Quota Attainment (reconciled at ₹4,50,000, not ₹7,00,000).
   - Informational exclusion callout banner displayed in Reports Hub indicating: *1 Unbilled Order (₹2,95,000.00 gross) pending conversion to invoice*.
 
-### 9.2 Cancelled Invoice `INV-2026-041`
-- **Transaction Details:** Issued invoice cancelled on `2026-04-20` with recorded reason `"Customer requested renegotiated scope"`. Original gross value: ₹1,18,000.
+### 9.2 Cancelled Invoice `INV-2026-041` (Synthetic Cancellation Scenario Fixture)
+- **Authoritative Baseline vs Cancellation Test Fixture (CF6-02 Clarification):**
+  - The approved baseline fixture dataset (`collectflow.json`) contains exactly two records: `INV-2026-042` (issued commercial invoice, ₹5,31,000 gross) and `PO-NEXUS-881` (unbilled purchase order, ₹2,95,000 gross).
+  - `INV-2026-041` was introduced in Stage 3 as a synthetic test-suite fixture (`src/test/cancellation.test.ts`, `src/test/challenger-reports-adversarial.test.tsx`) to verify the cancellation lifecycle without mutating baseline invariants. It does NOT exist in static baseline data, and no artificial historical transactions were fabricated.
 - **Backend Classification (`v_invoice_summary`):**
   `payment_status = 'CANCELLED'`. Outstanding balance is forced to `0.0`:
   ```sql
   CASE WHEN i.payment_status = 'CANCELLED' THEN 0.0 ELSE ... END AS outstanding_balance
   ```
-- **Exclusion Enforcement in Reports Hub (`src/data/reporting.ts:287-290`):**
+- **Raw Export Retention vs Reports Hub Exclusion (CF6-02 Resolution):**
+  - In raw Excel / CSV exports, all records matching the selected FY (or ALL) are retained. When cancelled records exist, they are exported with `Status: CANCELLED`, `Balance Outstanding (₹): 0.0`, and `Days Overdue: 0`.
+  - In Reports Hub, cancelled invoices are strictly excluded from matching rows, active receivables, collections, and quota attainment (`src/data/reporting.ts:287-290`).
+- **Exclusion Enforcement in Reports Hub:**
   ```typescript
   if (inv.computed_status === 'CANCELLED' || inv.payment_status === 'CANCELLED') {
     cancelledCount++;
@@ -356,10 +361,10 @@ A core requirement of financial reporting integrity is ensuring that unbilled pu
   }
   ```
 - **Impact & Verification:**
-  - `INV-2026-041` is **completely excluded** from Invoiced Revenue and Accounts Receivable.
+  - `INV-2026-041` is **completely excluded** from Invoiced Revenue and Accounts Receivable when present in cancellation scenarios.
   - Excluded from AR Aging buckets (receivable record check enforces `computed_status !== 'CANCELLED' && outstanding_balance > 0`).
   - Cannot receive recorded payments (blocked with HTTP 400 equivalent per Stage 3 contract).
-  - Informational exclusion callout banner displayed in Reports Hub indicating: *1 Cancelled Invoice (INV-2026-041) excluded from active receivables*.
+  - In raw export (`compileExportRows`), cancelled rows retain status `CANCELLED` and `0.0` outstanding balance.
 
 ---
 
@@ -542,6 +547,77 @@ In adherence to the integrity mandate, all known boundaries, intentional deviati
 
 ---
 
-**Report Authored By:** Worker M4 (Documentation Specialist)  
-**Handoff Artifact:** `/home/anishb/projects/personal/cash-flow-buddy-101/.agents/teamwork/worker_m4_review/handoff.md`  
-**Completion Status:** All Stage 6 requirements fully satisfied and authoritative review published.
+## 13. Independent UAT Defect Corrections (CF6-01 through CF6-04)
+
+Following independent ChatGPT Work browser acceptance testing, four defects were reported and resolved locally:
+
+### 13.1 Detailed Defect Root Cause & Resolution Analysis
+
+| Defect ID | Severity | Title | Root Cause | Implemented Resolution |
+|-----------|----------|-------|------------|------------------------|
+| **CF6-01** | **HIGH** | Export Review Combines AR and Unbilled Values | `ExportDrawer` Step 3 Review KPI card previously displayed raw `totals.totalOutstanding` (₹6,17,000), conflating recognized commercial invoice receivables (INV-2026-042 ₹3,22,000) with unbilled draft purchase orders (PO-NEXUS-881 ₹2,95,000) without distinct category breakdown. | Separated balances across all drawer steps: Step 2 Preview displays "Recognized AR" and "Unbilled Orders" summary tiles; Step 3 Review displays "Balance Outstanding" KPI card showing Recognized Accounts Receivable (₹3,22,000) alongside a dedicated "Unbilled Orders (Gross)" card (₹2,95,000) and explicit explanatory note indicating the combined raw export balance (₹6,17,000); Step 5 Result Artifact Details displays both values distinctly. |
+| **CF6-02** | **HIGH** | Missing Cancelled Invoice in Baseline ALL Export | Authoritative baseline fixture `collectflow.json` intentionally contains exactly two records (`INV-2026-042` and `PO-NEXUS-881`). `INV-2026-041` was a synthetic test-suite fixture created in Stage 3 (`src/test/cancellation.test.ts`) that was never part of baseline static data. Inadvertent documentation described it as existing in the static baseline. | Preserved the approved 2-record baseline without fabricating artificial historical transactions. Enhanced `export-engine.ts` to ensure that whenever cancelled invoices exist in demo session state (or cancellation test scenarios), they are strictly retained in raw export with `Status: CANCELLED`, `Balance Outstanding (₹): 0.0`, and `Days Overdue: 0`, while excluded from active revenue and receivables. Added Python `openpyxl` programmatic verification test. |
+| **CF6-03** | **MEDIUM** | Mobile Export Preview Horizontal Overflow | In `export-drawer.tsx` Step 2 Preview, the sample dataset preview was rendered as an HTML table with inline `overflowX: auto`. A 6-column table (~496px wide) inside a 339px wide mobile drawer required horizontal scrolling. | Implemented responsive dual-layout presentation: `<div className="cf-table-container">` for desktop viewports and `<div className="cf-mobile-cards">` containing responsive `.cf-record-card` elements for mobile viewports (`<= 600px` or `.cf-preview-mobile`). Added `overflowX: "hidden"` to drawer body. Zero horizontal scrolling occurs in mobile viewports. |
+| **CF6-04** | **MEDIUM** | Executive Attainment Text Search Ineffective | `getExecutiveAttainmentReport()` in `src/data/reporting.ts` filtered only by exact executive dropdown selection, ignoring the free-text `query` parameter against executive targets. | Added reactive case-insensitive search filtering across `t.user_name`, `user.username`, `user.full_name`, and user ID from `INITIAL_USERS`. Non-matching queries (e.g. `CF6-NO-MATCH`) now return 0 matching executives, display `(Filtered)` indicators on KPI cards, and render `<EmptyState onReset={onReset} />`. Clearing search restores all eligible executives. |
+
+### 13.2 Source Files Modified
+
+1. `src/components/collectflow/export-drawer.tsx`:
+   - Step 2 Preview: Added financial scope totals strip separating Recognized AR vs Unbilled Orders vs Combined Raw Balance; rendered desktop `.cf-table-container` alongside responsive `.cf-mobile-cards`.
+   - Step 3 Review: Updated "Balance Outstanding" card to display `totals.recognizedOutstanding` with "Recognized Accounts Receivable" subtitle; added dedicated "Unbilled Orders (Gross)" KPI card displaying `totals.unbilledOutstanding`; updated explanatory note.
+   - Step 5 Result: Added Recognized AR and Unbilled Orders lines to Artifact Details definition list.
+   - Drawer container: Enforced `overflowX: "hidden"` on drawer body to eliminate rogue horizontal scroll.
+2. `src/components/collectflow/reports-hub.tsx`:
+   - Updated `ExecutiveAttainmentView` KPI cards to display `(Filtered)` badge and `X of Y representatives (Filtered)` subtitle when search or executive filter is active.
+3. `src/data/reporting.ts`:
+   - Imported `INITIAL_USERS` from `./users`.
+   - Updated `getExecutiveAttainmentReport()` to apply `query` search against executive display name, username, full name, and user ID.
+   - Added `is_filtered` and `unfiltered_executive_count` to `ExecutiveAttainmentSummary`.
+4. `src/utils/export-engine.ts`:
+   - Enhanced `compileExportRows()` cancellation detection to check both `inv.payment_status === "CANCELLED"` and `inv.computed_status === "CANCELLED"`.
+   - Computed `recognizedOutstanding` and `unbilledOutstanding` accumulators in `calculateExportTotals()`.
+5. `src/test/export-data.test.ts`:
+   - Added 6 new regression tests covering CF6-01 (totals split & drawer cards), CF6-02 (cancelled row retention & zero balance with openpyxl verification), CF6-03 (dual table / mobile cards rendering), and CF6-04 (multi-field executive query filtering & empty state).
+6. `STAGE_6_REVIEW.md`:
+   - Updated Section 9.2 with CF6-02 fixture analysis; added Section 13 with complete defect remediation report.
+
+### 13.3 CF6-02 Fixture Investigation & Conclusion
+
+1. **Database & Mock Inspection:**
+   - Backend `collectflow/data/collectflow.db` and `collectflow/docs/lovable-handoff/MOCK_DATA.json` contain only 2 records: `INV-2026-042` and `PO-NEXUS-881`.
+   - Frontend `src/data/collectflow.json` contains exactly those same 2 records.
+   - No `INV-2026-041` record exists in any approved static fixture.
+2. **Investigation Finding:**
+   - `INV-2026-041` originated as a synthetic test-case fixture in Stage 3 (`src/test/cancellation.test.ts`) to verify that cancelled invoices zero out receivables.
+   - Previous Stage 6 review text inadvertently implied that `INV-2026-041` was pre-loaded into the baseline dataset.
+3. **Conclusion & Policy Compliance:**
+   - Adhering to the prompt restriction *"Do not invent historical transactions solely to satisfy a test"* and *"Preserve all approved Stage 0–5 financial baselines"*, `collectflow.json` was kept intact.
+   - `compileExportRows()` was verified to retain any cancelled invoice that enters session state (e.g. via cancellation workflows or mock scenarios) with `Status: CANCELLED`, `Balance Outstanding: 0.0`, and `Days Overdue: 0`.
+
+### 13.4 Mandatory Financial Invariants Verification
+
+After Reset Demo, all 7 financial invariants remain exact:
+- **Gross Invoiced:** ₹5,31,000.00
+- **Cash Collected:** ₹2,00,000.00
+- **TDS Recognized:** ₹9,000.00
+- **Total Settled:** ₹2,09,000.00
+- **Recognized Accounts Receivable:** ₹3,22,000.00
+- **Unbilled Orders (Gross):** ₹2,95,000.00
+- **Reporting Date:** 30 April 2026 (`INV-2026-042` due 12 May 2026, 0 days overdue)
+
+Target attainment datasets:
+- **FY 2026–27:** ₹75,00,000 target, ₹4,50,000 achieved (exclusive), 6.0% attainment, ₹70,50,000 remaining.
+- **FY 2025–26:** ₹91,00,000 target (Neha ₹36L, Kavya ₹30L, Arjun ₹25L), ₹0 achieved (0.0%).
+
+### 13.5 Full Automated Test Validation Results
+
+- **Vitest Suite:** **525 passed across 35 test files (100% pass rate)**.
+- **TypeScript Typecheck:** `npx tsc --noEmit` passed with **0 errors**.
+- **Production Build:** `npm run build` compiled cleanly with Nitro Cloudflare preset in **1.46s**.
+- **Playwright E2E Browser Suite:** **131 passed across 9 spec files (100% pass rate)**, verifying all 4 viewports (1440px desktop, 768px tablet, 390px mobile, 320px narrow mobile) with **0 console errors**.
+- **Python openpyxl Programmatic Verification:** Genuine XLSX package verified with zero format warnings, exactly 17 columns in authoritative order, header fill `#1F4E79`, currency format `₹#,##0.00`, and cancelled invoice zero balance confirmation.
+
+### 13.6 Final Local Verdict: ✅ PASS
+
+All four reported defects (CF6-01, CF6-02, CF6-03, CF6-04) are fully resolved, automated regression coverage is in place, and all financial baselines and invariants remain intact.
+

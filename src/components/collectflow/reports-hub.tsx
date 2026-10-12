@@ -1352,7 +1352,9 @@ function ExecutiveAttainmentView({
           </div>
           <strong>{money(summary.total_target)}</strong>
           <small>
-            {summary.executive_count} sales representative{summary.executive_count === 1 ? "" : "s"}
+            {summary.is_filtered
+              ? `${summary.executive_count} of ${summary.unfiltered_executive_count ?? summary.executive_count} representatives (Filtered)`
+              : `${summary.executive_count} sales representative${summary.executive_count === 1 ? "" : "s"}`}
           </small>
         </article>
 
@@ -1362,7 +1364,11 @@ function ExecutiveAttainmentView({
             <FileText size={20} />
           </div>
           <strong>{money(summary.total_actual_sales)}</strong>
-          <small>Tax-exclusive invoiced sales</small>
+          <small>
+            {summary.is_filtered
+              ? "Tax-exclusive invoiced sales (Filtered)"
+              : "Tax-exclusive invoiced sales"}
+          </small>
         </article>
 
         <article className="cf-metric cf-metric-primary" data-testid="kpi-quota-attainment">

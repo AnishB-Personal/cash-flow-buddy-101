@@ -385,7 +385,8 @@ export function compileExportRows(
 
   return filtered.map((inv) => {
     // Determine status & balances conforming to v_invoice_summary SQL view
-    const isCancelled = inv.payment_status === "CANCELLED";
+    const isCancelled =
+      inv.payment_status === "CANCELLED" || inv.computed_status === "CANCELLED";
     const isUnbilled = !inv.invoice_number?.trim();
     const computedStatus = isCancelled
       ? "CANCELLED"

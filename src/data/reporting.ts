@@ -1,6 +1,7 @@
 // Date classification only: financial amounts and payment statuses remain authoritative inputs.
 import type { Invoice } from "./collectflow";
 import type { SalesTarget } from "./targets";
+import { INITIAL_USERS } from "./users";
 
 export interface CustomerEntity {
   id: number;
@@ -212,6 +213,8 @@ export interface ExecutiveAttainmentSummary {
   total_remaining: number;
   executive_count: number;
   excluded_unbilled_sales: number;
+  unfiltered_executive_count?: number;
+  is_filtered?: boolean;
 }
 
 export interface ExecutiveAttainmentReport {
@@ -574,7 +577,17 @@ export function getExecutiveAttainmentReport(
 
   for (const t of fyTargets) {
     if (executiveFilter && t.user_name !== executiveFilter) continue;
-    if (query && !t.user_name.toLowerCase().includes(query)) continue;
+
+    if (query) {
+      const user = INITIAL_USERS.find((u) => u.id === t.user_id);
+      const matchesQuery =
+        t.user_name.toLowerCase().includes(query) ||
+        (user?.username && user.username.toLowerCase().includes(query)) ||
+        (user?.full_name && user.full_name.toLowerCase().includes(query)) ||
+        String(t.user_id).includes(query);
+
+      if (!matchesQuery) continue;
+    }
 
     // Filter matching invoices for this executive in this FY
     const execInvoices = invoices.filter((inv) => {
@@ -628,6 +641,7 @@ export function getExecutiveAttainmentReport(
   const overall_achievement_pct =
     total_target > 0 ? Number(((total_actual_sales / total_target) * 100).toFixed(1)) : 0;
   const total_remaining = Math.max(0, roundAmount(total_target - total_actual_sales));
+  const is_filtered = Boolean(query || (executiveFilter && executiveFilter !== "All executives"));
 
   return {
     rows,
@@ -638,6 +652,8 @@ export function getExecutiveAttainmentReport(
       overall_achievement_pct,
       total_remaining,
       executive_count: rows.length,
+      unfiltered_executive_count: fyTargets.length,
+      is_filtered,
       excluded_unbilled_sales: roundAmount(excludedUnbilled),
     },
   };

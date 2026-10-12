@@ -255,7 +255,7 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
             </Button>
           </header>
 
-          <div className="cf-drawer-body">
+          <div className="cf-drawer-body" style={{ overflowX: "hidden" }}>
             {/* 5-Step Workflow Progress Bar */}
             <div
               className="cf-demo-progress"
@@ -529,15 +529,69 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                   </Badge>
                 </div>
 
-                <FormSection title="Sample Dataset Rows Preview">
+                {/* Financial Scope Totals (CF6-01: Split Recognized AR vs Unbilled) */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                    gap: 10,
+                    fontSize: 12,
+                  }}
+                >
                   <div
                     style={{
-                      overflowX: "auto",
+                      padding: "10px 12px",
+                      backgroundColor: "var(--card)",
                       border: "1px solid var(--border)",
                       borderRadius: 6,
                     }}
                   >
+                    <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>
+                      Recognized AR
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 15, marginTop: 2 }}>
+                      {formatCurrency(totals.recognizedOutstanding)}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      backgroundColor: "var(--card)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                    }}
+                  >
+                    <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>
+                      Unbilled Orders
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 15, marginTop: 2 }}>
+                      {formatCurrency(totals.unbilledOutstanding)}
+                    </div>
+                  </div>
+                  {totals.unbilledOutstanding > 0 && (
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        backgroundColor: "var(--card)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                      }}
+                    >
+                      <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>
+                        Combined Raw Balance
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: 15, marginTop: 2 }}>
+                        {formatCurrency(totals.totalOutstanding)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <FormSection title="Sample Dataset Rows Preview">
+                  {/* Desktop Table View */}
+                  <div className="cf-table-container">
                     <table
+                      className="cf-table"
                       style={{
                         width: "100%",
                         borderCollapse: "collapse",
@@ -585,6 +639,63 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                         ))}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Mobile Responsive Cards View (CF6-03: Zero horizontal overflow) */}
+                  <div className="cf-mobile-cards">
+                    {scopedRows.map((r, i) => (
+                      <article
+                        key={i}
+                        className="cf-record-card"
+                        style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}
+                      >
+                        <header
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <strong style={{ fontSize: 13 }}>
+                            {r["Invoice Number"] || r["PO Number"] || "—"}
+                          </strong>
+                          <span className={`cf-status ${r["Status"].toLowerCase()}`}>
+                            {r["Status"]}
+                          </span>
+                        </header>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{r["Customer Name"]}</div>
+                        <dl
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: "6px 10px",
+                            fontSize: 11,
+                            margin: 0,
+                          }}
+                        >
+                          <div>
+                            <dt style={{ color: "var(--muted-foreground)" }}>PO Number</dt>
+                            <dd style={{ margin: 0, fontWeight: 500 }}>{r["PO Number"]}</dd>
+                          </div>
+                          <div>
+                            <dt style={{ color: "var(--muted-foreground)" }}>FY</dt>
+                            <dd style={{ margin: 0, fontWeight: 500 }}>{r["FY"]}</dd>
+                          </div>
+                          <div>
+                            <dt style={{ color: "var(--muted-foreground)" }}>Total Invoiced</dt>
+                            <dd style={{ margin: 0, fontWeight: 600 }}>
+                              {formatCurrency(r["Total Invoiced (₹)"])}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt style={{ color: "var(--muted-foreground)" }}>Outstanding</dt>
+                            <dd style={{ margin: 0, fontWeight: 600 }}>
+                              {formatCurrency(r["Balance Outstanding (₹)"])}
+                            </dd>
+                          </div>
+                        </dl>
+                      </article>
+                    ))}
                   </div>
                 </FormSection>
 
@@ -677,14 +788,35 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                         {formatCurrency(totals.recognizedOutstanding)}
                       </div>
                       <div style={{ fontSize: 10, color: "var(--muted-foreground)", marginTop: 2 }}>
-                        Recognized AR · Unbilled: {formatCurrency(totals.unbilledOutstanding)}
+                        Recognized Accounts Receivable
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        padding: 12,
+                        backgroundColor: "var(--card)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                      }}
+                    >
+                      <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
+                        Unbilled Orders (Gross)
+                      </span>
+                      <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>
+                        {formatCurrency(totals.unbilledOutstanding)}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--muted-foreground)", marginTop: 2 }}>
+                        Pending Commercial Invoice
                       </div>
                     </div>
                   </div>
                   <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 8 }}>
-                    Note: Recognized AR Outstanding is {formatCurrency(totals.recognizedOutstanding)}.
-                    Unbilled purchase order commitments ({formatCurrency(totals.unbilledOutstanding)}) are
+                    Note: Recognized Accounts Receivable is {formatCurrency(totals.recognizedOutstanding)}.
+                    Unbilled Orders (Gross) commitments ({formatCurrency(totals.unbilledOutstanding)}) are
                     tracked separately and excluded from invoiced revenue; cancelled invoices zero out outstanding receivables.
+                    {totals.unbilledOutstanding > 0 && (
+                      <> Combined Raw Export Balance: {formatCurrency(totals.totalOutstanding)}.</>
+                    )}
                   </div>
                 </FormSection>
 
@@ -892,6 +1024,18 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                     <div>
                       <dt style={{ color: "var(--muted-foreground)" }}>Total Invoiced Gross</dt>
                       <dd style={{ fontWeight: 600 }}>{formatCurrency(totals.totalInvoiced)}</dd>
+                    </div>
+                    <div>
+                      <dt style={{ color: "var(--muted-foreground)" }}>Recognized AR</dt>
+                      <dd style={{ fontWeight: 600 }}>
+                        {formatCurrency(totals.recognizedOutstanding)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt style={{ color: "var(--muted-foreground)" }}>Unbilled Orders</dt>
+                      <dd style={{ fontWeight: 600 }}>
+                        {formatCurrency(totals.unbilledOutstanding)}
+                      </dd>
                     </div>
                   </dl>
                 </FormSection>
