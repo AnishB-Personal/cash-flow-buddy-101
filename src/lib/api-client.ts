@@ -284,6 +284,49 @@ class ApiClient {
       this.clearSession();
     }
   }
+
+  // Customer Master Operations
+  public async getCustomers(search?: string): Promise<any[]> {
+    const query = search ? `?search=${encodeURIComponent(search)}` : "";
+    return await this.request<any[]>(`/api/customers${query}`);
+  }
+
+  public async getCustomer(id: number): Promise<any> {
+    return await this.request<any>(`/api/customers/${id}`);
+  }
+
+  public async createCustomer(data: any): Promise<{ success: boolean; id: number; message: string }> {
+    return await this.request<{ success: boolean; id: number; message: string }>("/api/customers", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  public async updateCustomer(id: number, data: any): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>(`/api/customers/${id}`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  public async deleteCustomer(id: number): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>(`/api/customers/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  // Statutory Reference Data Operations
+  public async getMetadata(): Promise<any> {
+    return await this.request<any>("/api/meta");
+  }
+
+  public async getFinancialYears(): Promise<any[]> {
+    return await this.request<any[]>("/api/settings/financial-years");
+  }
+
+  public async getTaxes(): Promise<any> {
+    return await this.request<any>("/api/settings/taxes");
+  }
 }
 
 export const apiClient = new ApiClient();
