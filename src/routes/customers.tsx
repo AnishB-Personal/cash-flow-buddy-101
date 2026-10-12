@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api-client";
 import { Workspace } from "@/components/collectflow/workspace";
 
 export const Route = createFileRoute("/customers")({
+  ssr: false,
   beforeLoad: () => {
     if (apiClient.getMode() === "live" && !apiClient.getToken()) {
       throw redirect({ to: "/login" });
