@@ -14,6 +14,7 @@ import { Route as ArAgingRouteImport } from './routes/ar-aging'
 import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as DesignComparisonRouteImport } from './routes/design-comparison'
 import { Route as InvoicesRouteImport } from './routes/invoices'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as PaymentsRouteImport } from './routes/payments'
 import { Route as PerformanceAnalyticsRouteImport } from './routes/performance-analytics'
@@ -45,6 +46,11 @@ const DesignComparisonRoute = DesignComparisonRouteImport.update({
 const InvoicesRoute = InvoicesRouteImport.update({
   id: '/invoices',
   path: '/invoices',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrdersRoute = OrdersRouteImport.update({
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/customers': typeof CustomersRoute
   '/design-comparison': typeof DesignComparisonRoute
   '/invoices': typeof InvoicesRoute
+  '/login': typeof LoginRoute
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
   '/performance-analytics': typeof PerformanceAnalyticsRoute
@@ -103,6 +110,7 @@ export interface FileRoutesByTo {
   '/customers': typeof CustomersRoute
   '/design-comparison': typeof DesignComparisonRoute
   '/invoices': typeof InvoicesRoute
+  '/login': typeof LoginRoute
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
   '/performance-analytics': typeof PerformanceAnalyticsRoute
@@ -118,6 +126,7 @@ export interface FileRoutesById {
   '/customers': typeof CustomersRoute
   '/design-comparison': typeof DesignComparisonRoute
   '/invoices': typeof InvoicesRoute
+  '/login': typeof LoginRoute
   '/orders': typeof OrdersRoute
   '/payments': typeof PaymentsRoute
   '/performance-analytics': typeof PerformanceAnalyticsRoute
@@ -134,6 +143,7 @@ export interface FileRouteTypes {
     | '/customers'
     | '/design-comparison'
     | '/invoices'
+    | '/login'
     | '/orders'
     | '/payments'
     | '/performance-analytics'
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/customers'
     | '/design-comparison'
     | '/invoices'
+    | '/login'
     | '/orders'
     | '/payments'
     | '/performance-analytics'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/customers'
     | '/design-comparison'
     | '/invoices'
+    | '/login'
     | '/orders'
     | '/payments'
     | '/performance-analytics'
@@ -177,6 +189,7 @@ export interface RootRouteChildren {
   CustomersRoute: typeof CustomersRoute
   DesignComparisonRoute: typeof DesignComparisonRoute
   InvoicesRoute: typeof InvoicesRoute
+  LoginRoute: typeof LoginRoute
   OrdersRoute: typeof OrdersRoute
   PaymentsRoute: typeof PaymentsRoute
   PerformanceAnalyticsRoute: typeof PerformanceAnalyticsRoute
@@ -221,6 +234,13 @@ declare module '@tanstack/react-router' {
       path: '/invoices'
       fullPath: '/invoices'
       preLoaderRoute: typeof InvoicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/orders': {
@@ -281,6 +301,7 @@ const rootRouteChildren: RootRouteChildren = {
   CustomersRoute: CustomersRoute,
   DesignComparisonRoute: DesignComparisonRoute,
   InvoicesRoute: InvoicesRoute,
+  LoginRoute: LoginRoute,
   OrdersRoute: OrdersRoute,
   PaymentsRoute: PaymentsRoute,
   PerformanceAnalyticsRoute: PerformanceAnalyticsRoute,
