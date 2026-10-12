@@ -490,4 +490,43 @@ To guarantee quality, implementation is structured into small, independently tes
 3. **Foreign Currency Settlements:** Should payments against USD/EUR invoices be recorded in foreign currency with realized forex gain/loss calculations, or converted to INR at the invoice exchange rate?
 
 ---
+
+## 12. Stage 4C.1 Completion Record & Schema Artifacts
+
+- **Stage:** Stage 4C.1 — PostgreSQL Database Foundation, SQLAlchemy Domain Models, Alembic Migrations and Synthetic Fixture Initialization
+- **Status:** **PASS** (100% verified locally)
+- **PostgreSQL Version:** PostgreSQL 16 Alpine (`127.0.0.1:5432`, container `collectflow-postgres-dev`)
+- **Alembic Revision:** `e9ee322f8b96` (`create_collectflow_v1_domain_schema`)
+- **Table Inventory (15 Domain Tables + Alembic):**
+  1. `financial_years`
+  2. `gst_rate_master`
+  3. `tds_section_master`
+  4. `users`
+  5. `sessions`
+  6. `login_attempts`
+  7. `customers`
+  8. `purchase_orders`
+  9. `purchase_order_items`
+  10. `commercial_invoices`
+  11. `commercial_invoice_items`
+  12. `payment_transactions`
+  13. `sales_targets`
+  14. `audit_logs`
+  15. `export_tickets`
+- **Synthetic Fixtures Seeded:**
+  - Invoice: `INV-2026-042` (Gross ₹5,31,000.00, Tax ₹81,000.00, Excl ₹45,0000.00)
+  - Purchase Order: `PO-NEXUS-881` (Gross ₹2,95,000.00, Tax ₹45,000.00, Excl ₹2,50,000.00)
+  - Settlement: `REM-2026-001` (Cash ₹2,00,000.00, TDS ₹9,000.00 under 194C, Settled ₹2,09,000.00, Outstanding ₹3,22,000.00)
+  - Users: `sandbox_admin`, `sandbox_finance`, `sandbox_sales`, `sandbox_viewer` with Argon2id hashes.
+  - Sales Target: FY 2026-27 target for `sandbox_sales` at ₹75,00,000.00.
+- **Verification Evidence:**
+  - PostgreSQL automated tests: 6 passed (`tests/test_postgres_domain_models.py`)
+  - Backend contract tests: 3 passed (`tests/contracts/test_domain_contracts.py`)
+  - Frontend test suite: 543 passed across 38 test suites (`npm test`)
+- **Branch Checkpoints:**
+  - Frontend: `feature/phase4-stage4c1-postgres-models`
+  - Backend: `feature/phase4-stage4c1-postgres-models`
+
+---
 *Report submitted for final architecture review. Implementation on hold pending formal approval.*
+
