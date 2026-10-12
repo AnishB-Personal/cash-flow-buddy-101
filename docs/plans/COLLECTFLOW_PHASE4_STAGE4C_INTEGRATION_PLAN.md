@@ -5,7 +5,7 @@
 **Status:** **DRAFT — Awaiting Independent Architecture Review and Approval**  
 **Target Repository:** `/home/anishb/projects/personal/cash-flow-buddy-101`  
 **Target File Path:** `docs/plans/COLLECTFLOW_PHASE4_STAGE4C_INTEGRATION_PLAN.md`  
-**Frontend Baseline Checkpoint:** `254f34127208b5d46c748927c5a39c8d0c84d03d` (`feature/phase4-stage4b-sandbox-auth`)  
+**Frontend Baseline Checkpoint:** `8f85e49631543ea24bca679648d98f5b8ca1de62` (`feature/phase4-stage4b-sandbox-auth`)  
 **Backend Reference Checkpoint:** `1aa9cf6224fa7d37793b16b03bc21ef9a5ede766` (`feature/phase4-stage4b-sandbox-auth`)  
 **Approved Phase 3 Release Checkpoint:** `b4c4b25f634e2f0131b7299570f994f3e6a3502f` (Preserved intact)  
 
@@ -13,105 +13,60 @@
 
 ## 1. Executive Summary & Product Architecture Mandate
 
-The product owner has established two foundational architectural principles for CollectFlow Phase 4:
+The product owner has established the definitive architectural direction for CollectFlow Phase 4:
 
 1. **Frontend UI/UX Is the Authoritative Reference:**
-   The approved Phase 3 frontend experience (screens, TanStack routes, modern SaaS workflows, mobile responsiveness, and design tokens) is formally approved and accepted. The backend exists to power this experience authoritatively. No unnecessary UI redesigns will occur.
-2. **Zero Legacy Data Preservation Constraint:**
-   CollectFlow is under active pre-production development. There is **no requirement to preserve, migrate, or maintain backward compatibility with legacy development database records or obsolete API contracts**. All existing development data is disposable synthetic fixture data. The database schema and API contracts may be cleanly redesigned from scratch.
+   The approved Phase 3 frontend experience (screens, TanStack routes, modern SaaS workflows, mobile responsiveness across 1440px, 768px, 390px, 320px viewports, and design tokens) is formally approved and accepted. The backend exists to power this experience authoritatively. No unnecessary UI redesigns will occur.
+2. **Zero Legacy Data Preservation Overhead:**
+   CollectFlow is under active pre-production development. There is **no requirement to preserve, migrate, or maintain backward compatibility with legacy development database records or obsolete API contracts**. All existing development data is disposable synthetic fixture data. The database schema and API contracts are redesigned cleanly from scratch.
 3. **Future Financial History Is Legally Immutable:**
-   While legacy development records are disposable, the newly engineered application must strictly preserve financial history from the moment production business operations commence. This requires tamper-evident audit logging, double-entry style financial transaction tracking, immutable issued invoices, clear cash/TDS allocations, and explicit cancellation audit records.
-
-### Architecture Options Assessment
-
-| Evaluation Dimension | Option A: Minimal Legacy Integration | Option B: Full Rewrite from Scratch | Option C: Selective Rebuilding & Clean Modular Restructuring (**RECOMMENDED**) |
-|---|---|---|---|
-| **Core Concept** | Treat legacy backend and SQLite schema as immutable; wrap gaps in frontend adapters. | Discard all backend code and write a new backend without reusing verified security/isolation code. | Rebuild database schema cleanly from scratch; restructure backend into a modular monolith; reuse battle-tested security, isolation, and export utilities. |
-| **Data Model Quality** | **Poor:** Burdened by denormalized columns (`customer_name` snapshot quirks in `invoices`), ambiguous order/invoice state, and rigid views. | **High:** Clean schema, but wastes verified engineering work on password security, locks, and CORS. | **Excellent:** Pristine relational schema with proper lifecycle modeling, strict foreign keys, and decimal arithmetic. |
-| **Financial Authority** | **Failed:** Relies on client-side approximations for reporting and as-of aging. | **High:** Authoritative, but high implementation delay and regression surface. | **Authoritative:** Backend serves exact reporting aggregations, statutory tax calculations, and strict immutability. |
-| **Effort & Risk** | Low upfront, massive ongoing maintenance penalty. | 14–18 Engineering Days; high defect discovery surface. | **7.5–8.5 Engineering Days;** fastest path to a production-grade product. |
-| **Verdict** | **REJECTED** | **REJECTED** | **RECOMMENDED** |
+   While legacy development records are disposable, the newly engineered application must strictly preserve financial history from the moment production business operations commence. This requires tamper-evident audit logging, non-destructive settlement adjustments, immutable issued invoices with line-item snapshots, clear cash/TDS allocations, and explicit cancellation audit records.
+4. **Target Architecture: Option C (Clean Modular Monolith):**
+   A modular FastAPI application backed by a unified PostgreSQL relational persistence layer (with a strict PostgreSQL parity strategy across environments).
 
 ---
 
-## 2. Target Architecture: Clean Modular Monolith
+## 2. Architecture Decision Register (ADR)
 
-CollectFlow will be structured as a **Modular Monolith** in FastAPI, organized into 8 discrete domain packages sharing a unified transactional data layer:
-
-```
-                          ┌────────────────────────────────────────────────────────┐
-                          │              CollectFlow React Frontend                │
-                          │        (Approved Phase 3 Modern SaaS UI/UX)            │
-                          │      [Dual-Mode: VITE_API_MODE = 'mock' | 'live']      │
-                          └───────────────────────────┬────────────────────────────┘
-                                                      │ HTTPS / JSON API
-                                                      ▼
-┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                   FastAPI Modular Monolith Core                                  │
-│                                                                                                  │
-│  ┌───────────────────────────┐  ┌───────────────────────────┐  ┌───────────────────────────────┐ │
-│  │ 1. Identity & RBAC Domain │  │ 2. Customer Domain        │  │ 3. Orders & Billing Domain    │ │
-│  │  - PBKDF2 Password Hashing│  │  - Master Directory       │  │  - Purchase Orders (Unbilled) │ │
-│  │  - Ephemeral Live Sessions│  │  - Credit & GSTIN Master  │  │  - Commercial Invoices (Tax)  │ │
-│  │  - Role Dependency Gates  │  │  - Exposure Analytics     │  │  - Legal Immutability Engine  │ │
-│  └─────────────┬─────────────┘  └─────────────┬─────────────┘  └───────────────┬───────────────┘ │
-│                │                              │                                │                 │
-│  ┌─────────────┴─────────────┐  ┌─────────────┴─────────────┐  ┌───────────────┴───────────────┐ │
-│  │ 4. Settlement & TDS Domain│  │ 5. Sales Targets Domain   │  │ 6. Reporting & Analytics Hub  │ │
-│  │  - Cash / TDS Split (194C)│  │  - Multi-Period Quotas    │  │  - Server Aggregations (KPIs) │ │
-│  │  - Overpayment Guards     │  │  - Tax-Exclusive Attain.  │  │  - Dynamic As-Of AR Aging     │ │
-│  │  - Administrative Correct.│  │  - Executive Leaderboard  │  │  - 17-Col Excel & CSV Streams │ │
-│  └─────────────┬─────────────┘  └─────────────┬─────────────┘  └───────────────┬───────────────┘ │
-│                │                              │                                │                 │
-│  ┌─────────────┴──────────────────────────────┴────────────────────────────────┴───────────────┐ │
-│  │ 7. Statutory References (Indian Financial Years, GST Slabs, TDS Rates, Date Boundaries)     │ │
-│  ├─────────────────────────────────────────────────────────────────────────────────────────────┤ │
-│  │ 8. Audit & Integrity Core (BEGIN IMMEDIATE Serialization, Append-Only Trail, Redaction)     │ │
-│  └──────────────────────────────────────────────┬──────────────────────────────────────────────┘ │
-│                                                 │                                                │
-│                                                 ▼                                                │
-│                        ┌────────────────────────────────────────────────┐                        │
-│                        │         Persistence & Concurrency Layer        │                        │
-│                        │  Development / CI: SQLite 3 (WAL Mode + FK)   │                        │
-│                        │  Target Production: PostgreSQL 16+ Engine      │                        │
-│                        │  Schema Management: Versioned Alembic/SQL DDL  │                        │
-│                        └────────────────────────────────────────────────┘                        │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
+| Decision ID | Title | Status | Context & Decision Rationale |
+|---|---|:---:|---|
+| **ADR-01** | **Modular Monolith Pattern** | **ACCEPTED** | Rather than microservices or an unstructured script bundle, CollectFlow is structured as a Modular Monolith in FastAPI with 8 discrete domain packages sharing a transactional database. Eliminates distributed transaction complexity and latency. |
+| **ADR-02** | **PostgreSQL Primary Engine & Parity** | **ACCEPTED** | PostgreSQL 16+ is selected as the authoritative database engine for integration testing, CI, and production. Eliminates dialect divergence and SQLite locking limitations. SQLite is restricted strictly to lightweight, isolated unit-test mocks where explicitly justified. |
+| **ADR-03** | **Exact Decimal Monetary Representation** | **ACCEPTED** | All monetary amounts are modeled as `NUMERIC(15, 2)` (or integer minor units in paise where applicable) and handled in Python strictly via `Decimal` with `ROUND_HALF_UP`. Floating-point arithmetic (`float`) is banned from financial paths. |
+| **ADR-04** | **Dual-Table Commercial Billing Separation** | **ACCEPTED** | Replaces the legacy overloaded `invoices` table with two distinct tables: `purchase_orders` (unbilled commercial intent) and `commercial_invoices` (legally issued tax invoices). Unbilled orders cannot register settlements. |
+| **ADR-05** | **Non-Destructive Financial Event Sourcing** | **ACCEPTED** | Posted payments are immutable financial events. Administrative corrections and reversals do not execute destructive physical `DELETE` queries in the database; instead, they post a compensating negative adjustment event linked to the original payment. |
+| **ADR-06** | **OWASP Argon2id Password Security** | **ACCEPTED** | Upgrades authentication from PBKDF2 to Argon2id (memory-hard, resistant to GPU/ASIC cracking), adhering to current OWASP password storage guidelines. |
+| **ADR-07** | **Authoritative Server-Side Reporting** | **ACCEPTED** | Replaces client-side aggregations with dedicated backend reporting endpoints for AR Aging, Customer Exposure, Executive Quota Attainment, and Collections. |
+| **ADR-08** | **Statutory Invoice Immutability & Cancellation** | **ACCEPTED** | Once issued, invoice numbers and financial totals are legally locked. Invoices with active payments cannot be cancelled. Cancellation requires a mandatory audit reason and records user, timestamp, and audit trail. |
 
 ---
 
-## 3. Database Strategy: SQLite (Development) & PostgreSQL (Production Target)
+## 3. Database Strategy: PostgreSQL Parity Across All Environments
 
-### 3.1 Evaluation: Why SQLite for Local Dev and PostgreSQL for Production
+### 3.1 Why PostgreSQL Across Dev, CI, and Production
+With legacy SQLite development constraints eliminated, true environment parity is required:
+- **Production & Staging:** AWS RDS / Managed PostgreSQL 16+ with WAL replication and connection pooling.
+- **Local Integration Testing & CI:** Dedicated Dockerized PostgreSQL 16 container (`postgres:16-alpine`), matching exact extensions, collations, and constraint engines.
+- **Lightweight Unit Tests:** In-memory SQLite may remain strictly for fast, isolated repository-layer mocks, provided tests execute against the exact same SQLAlchemy 2.0 declarative mappings.
 
-Now that legacy database preservation is no longer a constraint, we evaluate the database strategy:
-
-1. **Development & CI/CD Sandbox (SQLite 3 with WAL Mode):**
-   - **Zero Operational Overhead:** Embedded, file-based, zero external daemon required, instant test teardown in pytest.
-   - **Hardened Isolation:** Verified in Stage 4B with canonical path dereferencing (`os.path.realpath`) preventing symlink attacks against production files.
-   - **Concurrency Safety:** Serialized write locks (`BEGIN IMMEDIATE`) eliminate concurrency race conditions in development.
-2. **Production Target (PostgreSQL 16+):**
-   - **True Row-Level Concurrency:** MVCC without table-level write locks.
-   - **Native Decimal Types (`NUMERIC(15,2)`):** Guarantees zero IEEE 754 floating-point drift across queries.
-   - **Strict Constraint Enforcement & Native As-Of Ledgering:** Rich date/timestamp functions and window aggregations.
-   - **Connection Pooling & Clustering:** Read replicas, high availability, and horizontal scaling.
-
-### 3.2 Maintaining Dialect Compatibility
-To allow seamless local development on SQLite while deploying cleanly to PostgreSQL:
-- **Avoid SQLite-Specific Hacks:** Do not use `strftime` or non-standard SQL functions in core business queries. Standardize on ISO-8601 strings (`YYYY-MM-DD` and `YYYY-MM-DD HH:MM:SS`) and standard ANSI SQL aggregation.
-- **SQLAlchemy 2.0 / Alembic DDL:** Define models using declarative SQLAlchemy 2.0 or versioned migration scripts that map cleanly to both dialects (e.g., `Numeric(15, 2)` maps to `REAL/NUMERIC` in SQLite and `NUMERIC(15, 2)` in Postgres).
-- **Exact Decimal Arithmetic in Python:** All currency arithmetic is performed in Python using `Decimal` and quantized via `ROUND_HALF_UP` before write, ensuring identical persistence across database engines.
+### 3.2 Concurrency & Transaction Management
+- **PostgreSQL Row-Level Locking:** Financial allocations and balance updates execute under transaction isolation using `SELECT ... FOR UPDATE` on the parent invoice row:
+  ```python
+  # PostgreSQL concurrency lock during payment allocation
+  stmt = select(CommercialInvoice).where(CommercialInvoice.id == invoice_id).with_for_update()
+  invoice = db.session.execute(stmt).scalar_one_or_none()
+  ```
+- **Elimination of SQLite Hacks:** The SQLite-specific `BEGIN IMMEDIATE` transaction manager is replaced with standard SQLAlchemy session transaction contexts with explicit pessimistic row locks.
 
 ---
 
-## 4. Rebuilt Database Schema (Clean-Slate Relational Model)
+## 4. Complete Financial Database Schema Specification
 
-With legacy constraints eliminated, we redesign the schema from scratch. The redesigned schema cleanly models the lifecycle:
+Below is the clean-slate PostgreSQL schema modeling all financial, operational, reference, and security entities:
 
 ```sql
 -- ============================================================================
--- 1. REFERENCE & IDENTITY MASTERS
+-- DOMAIN 1: STATUTORY REFERENCE & IDENTITY MASTERS
 -- ============================================================================
 
 CREATE TABLE financial_years (
@@ -119,22 +74,63 @@ CREATE TABLE financial_years (
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_fy_dates CHECK (start_date < end_date)
+);
+
+CREATE TABLE gst_rate_master (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    rate NUMERIC(5, 4) NOT NULL CHECK (rate >= 0.0000 AND rate <= 1.0000), -- e.g. 0.1800
+    cgst_rate NUMERIC(5, 4) NOT NULL DEFAULT 0.0000,
+    sgst_rate NUMERIC(5, 4) NOT NULL DEFAULT 0.0000,
+    igst_rate NUMERIC(5, 4) NOT NULL DEFAULT 0.0000,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE tds_section_master (
+    id SERIAL PRIMARY KEY,
+    section_code VARCHAR(20) UNIQUE NOT NULL, -- e.g. '194C', '194J'
+    description TEXT NOT NULL,
+    default_rate NUMERIC(5, 4) NOT NULL CHECK (default_rate >= 0.0000),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, -- SERIAL in Postgres
+    id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
-    password_hash VARCHAR(128) NOT NULL,
-    salt VARCHAR(64) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL, -- Argon2id hash string ($argon2id$v=19$...)
     role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'finance', 'sales', 'viewer')),
     full_name VARCHAR(100),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE sessions (
+    token_hash VARCHAR(64) PRIMARY KEY, -- SHA-256 of 32-byte secret token
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NOT NULL,
+    user_agent TEXT,
+    ip_address VARCHAR(45)
+);
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+CREATE INDEX idx_sessions_expires ON sessions(expires_at);
+
+CREATE TABLE login_attempts (
+    id SERIAL PRIMARY KEY,
+    identifier VARCHAR(100) NOT NULL,
+    attempted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    success BOOLEAN NOT NULL DEFAULT FALSE,
+    ip_address VARCHAR(45)
+);
+CREATE INDEX idx_login_attempts_lookup ON login_attempts(identifier, attempted_at);
+
 CREATE TABLE customers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     billing_name VARCHAR(150) UNIQUE NOT NULL,
     billing_address TEXT NOT NULL,
     city VARCHAR(50),
@@ -148,227 +144,350 @@ CREATE TABLE customers (
     phone_1 VARCHAR(25),
     phone_2 VARCHAR(25),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================================
--- 2. PURCHASE ORDERS & COMMERCIAL INVOICES (SEPARATE LIFECYCLE MODELING)
+-- DOMAIN 2: PURCHASE ORDERS & UNBILLED OPERATIONS
 -- ============================================================================
 
 CREATE TABLE purchase_orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     fy_code VARCHAR(20) NOT NULL REFERENCES financial_years(code),
     po_number VARCHAR(50) UNIQUE NOT NULL,
     po_date DATE NOT NULL,
-    customer_id INTEGER NOT NULL REFERENCES customers(id),
-    executive_id INTEGER NOT NULL REFERENCES users(id),
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+    executive_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     currency VARCHAR(10) NOT NULL DEFAULT 'INR',
-    exchange_rate NUMERIC(10, 4) NOT NULL DEFAULT 1.0000,
+    exchange_rate NUMERIC(12, 6) NOT NULL DEFAULT 1.000000 CHECK (exchange_rate > 0),
     exclusive_amount NUMERIC(15, 2) NOT NULL CHECK (exclusive_amount >= 0),
     tax_rate NUMERIC(5, 4) NOT NULL DEFAULT 0.1800,
     tax_amount NUMERIC(15, 2) NOT NULL CHECK (tax_amount >= 0),
     total_amount NUMERIC(15, 2) NOT NULL CHECK (total_amount >= 0),
-    billing_status VARCHAR(20) NOT NULL DEFAULT 'UNBILLED' CHECK (billing_status IN ('UNBILLED', 'CONVERTED', 'CANCELLED')),
+    status VARCHAR(20) NOT NULL DEFAULT 'UNBILLED' CHECK (status IN ('UNBILLED', 'CONVERTED', 'CANCELLED')),
     remarks TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX idx_po_customer ON purchase_orders(customer_id);
+CREATE INDEX idx_po_executive ON purchase_orders(executive_id);
+CREATE INDEX idx_po_status ON purchase_orders(status);
+
+CREATE TABLE purchase_order_items (
+    id SERIAL PRIMARY KEY,
+    po_id INTEGER NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    item_description TEXT NOT NULL,
+    quantity NUMERIC(12, 4) NOT NULL DEFAULT 1.0000 CHECK (quantity > 0),
+    unit_price NUMERIC(15, 2) NOT NULL CHECK (unit_price >= 0),
+    exclusive_amount NUMERIC(15, 2) NOT NULL CHECK (exclusive_amount >= 0),
+    tax_rate NUMERIC(5, 4) NOT NULL DEFAULT 0.1800,
+    tax_amount NUMERIC(15, 2) NOT NULL CHECK (tax_amount >= 0),
+    total_amount NUMERIC(15, 2) NOT NULL CHECK (total_amount >= 0)
+);
+CREATE INDEX idx_po_items_po ON purchase_order_items(po_id);
+
+-- ============================================================================
+-- DOMAIN 3: COMMERCIAL TAX INVOICES & IMMUTABLE LINE ITEMS
+-- ============================================================================
 
 CREATE TABLE commercial_invoices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    po_id INTEGER REFERENCES purchase_orders(id), -- Optional link to unbilled PO
+    id SERIAL PRIMARY KEY,
+    po_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
     fy_code VARCHAR(20) NOT NULL REFERENCES financial_years(code),
-    customer_id INTEGER NOT NULL REFERENCES customers(id),
-    executive_id INTEGER NOT NULL REFERENCES users(id),
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+    executive_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     invoice_number VARCHAR(50) UNIQUE NOT NULL,
     invoice_date DATE NOT NULL,
     due_date DATE NOT NULL,
     currency VARCHAR(10) NOT NULL DEFAULT 'INR',
-    exchange_rate NUMERIC(10, 4) NOT NULL DEFAULT 1.0000,
+    exchange_rate NUMERIC(12, 6) NOT NULL DEFAULT 1.000000 CHECK (exchange_rate > 0),
     exclusive_amount NUMERIC(15, 2) NOT NULL CHECK (exclusive_amount >= 0),
     tax_rate NUMERIC(5, 4) NOT NULL DEFAULT 0.1800,
     tax_amount NUMERIC(15, 2) NOT NULL CHECK (tax_amount >= 0),
     total_amount NUMERIC(15, 2) NOT NULL CHECK (total_amount >= 0),
-    
-    -- Legal Customer Snapshot at Time of Invoicing (Immutable)
+
+    -- Immutable Statutory Customer Snapshot at Moment of Invoicing
     snapshot_customer_name VARCHAR(150) NOT NULL,
     snapshot_gstin VARCHAR(20),
-    snapshot_address TEXT NOT NULL,
+    snapshot_billing_address TEXT NOT NULL,
     snapshot_state VARCHAR(50) NOT NULL,
 
-    -- Lifecycle & Statutory Status
+    -- GST Breakdown (Inter-state vs Intra-state)
+    cgst_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    sgst_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    igst_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+
+    -- Statutory Lifecycle Status
     lifecycle_status VARCHAR(20) NOT NULL DEFAULT 'ISSUED' CHECK (lifecycle_status IN ('ISSUED', 'CANCELLED')),
     cancellation_reason TEXT,
-    cancelled_at TIMESTAMP,
-    cancelled_by INTEGER REFERENCES users(id),
+    cancelled_at TIMESTAMPTZ,
+    cancelled_by INTEGER REFERENCES users(id) ON DELETE RESTRICT,
     remarks TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX idx_invoices_customer ON commercial_invoices(customer_id);
+CREATE INDEX idx_invoices_executive ON commercial_invoices(executive_id);
+CREATE INDEX idx_invoices_fy_status ON commercial_invoices(fy_code, lifecycle_status);
+CREATE INDEX idx_invoices_due_date ON commercial_invoices(due_date);
+
+CREATE TABLE commercial_invoice_items (
+    id SERIAL PRIMARY KEY,
+    invoice_id INTEGER NOT NULL REFERENCES commercial_invoices(id) ON DELETE RESTRICT,
+    item_description TEXT NOT NULL,
+    quantity NUMERIC(12, 4) NOT NULL DEFAULT 1.0000 CHECK (quantity > 0),
+    unit_price NUMERIC(15, 2) NOT NULL CHECK (unit_price >= 0),
+    exclusive_amount NUMERIC(15, 2) NOT NULL CHECK (exclusive_amount >= 0),
+    tax_rate NUMERIC(5, 4) NOT NULL DEFAULT 0.1800,
+    tax_amount NUMERIC(15, 2) NOT NULL CHECK (tax_amount >= 0),
+    total_amount NUMERIC(15, 2) NOT NULL CHECK (total_amount >= 0)
+);
+CREATE INDEX idx_inv_items_invoice ON commercial_invoice_items(invoice_id);
 
 -- ============================================================================
--- 3. SETTLEMENTS, CASH PAYMENTS & TDS ALLOCATIONS
+-- DOMAIN 4: FINANCIAL SETTLEMENTS, CASH, TDS & NON-DESTRUCTIVE ADJUSTMENTS
 -- ============================================================================
 
-CREATE TABLE payment_settlements (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    invoice_id INTEGER NOT NULL REFERENCES commercial_invoices(id),
-    payment_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00 CHECK (payment_amount >= 0),
-    tds_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00 CHECK (tds_amount >= 0),
-    total_settled NUMERIC(15, 2) NOT NULL CHECK (total_settled > 0),
-    tds_section VARCHAR(20) CHECK (tds_section IN ('194C', '194J', '194H', '194I', 'OTHER')),
+CREATE TABLE payment_transactions (
+    id SERIAL PRIMARY KEY,
+    invoice_id INTEGER NOT NULL REFERENCES commercial_invoices(id) ON DELETE RESTRICT,
+    parent_transaction_id INTEGER REFERENCES payment_transactions(id) ON DELETE RESTRICT, -- Linked original payment on reversal/correction
+    transaction_type VARCHAR(20) NOT NULL CHECK (transaction_type IN ('PAYMENT', 'REVERSAL', 'ADJUSTMENT')),
+    cash_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00, -- Can be negative for compensating reversals
+    tds_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,  -- Can be negative for compensating reversals
+    total_settled NUMERIC(15, 2) NOT NULL,            -- cash_amount + tds_amount
+    tds_section VARCHAR(20) REFERENCES tds_section_master(section_code),
     payment_date DATE NOT NULL,
     remittance_number VARCHAR(100),
     payment_mode VARCHAR(20) NOT NULL CHECK (payment_mode IN ('NEFT', 'RTGS', 'CHEQUE', 'UPI', 'CASH', 'WIRE', 'OTHER')),
     notes TEXT,
     idempotency_key VARCHAR(100) UNIQUE,
-    created_by INTEGER REFERENCES users(id),
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    recorded_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_settlement_math CHECK (total_settled = (cash_amount + tds_amount))
 );
+CREATE INDEX idx_payments_invoice ON payment_transactions(invoice_id);
+CREATE INDEX idx_payments_date ON payment_transactions(payment_date);
+CREATE INDEX idx_payments_parent ON payment_transactions(parent_transaction_id);
 
 -- ============================================================================
--- 4. SALES TARGETS & PERFORMANCE QUOTAS
+-- DOMAIN 5: SALES TARGETS & HISTORICAL PERFORMANCE RETENTION
 -- ============================================================================
 
 CREATE TABLE sales_targets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT, -- Preserves targets even if user is deactivated
     fy_code VARCHAR(20) NOT NULL REFERENCES financial_years(code),
-    yearly_target NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
-    half_yearly_target NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
-    quarterly_target NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
-    monthly_target NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    yearly_target NUMERIC(15, 2) NOT NULL DEFAULT 0.00 CHECK (yearly_target >= 0),
+    half_yearly_target NUMERIC(15, 2) NOT NULL DEFAULT 0.00 CHECK (half_yearly_target >= 0),
+    quarterly_target NUMERIC(15, 2) NOT NULL DEFAULT 0.00 CHECK (quarterly_target >= 0),
+    monthly_target NUMERIC(15, 2) NOT NULL DEFAULT 0.00 CHECK (monthly_target >= 0),
     monthly_bottom_line NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
     yearly_bottom_line NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, fy_code)
 );
+CREATE INDEX idx_targets_lookup ON sales_targets(fy_code, user_id);
 
 -- ============================================================================
--- 5. AUDIT & FINANCIAL INTEGRITY TRAIL
+-- DOMAIN 6: AUDIT TRAIL, EXPORT ACCESS & SYSTEM SECURITY
 -- ============================================================================
 
 CREATE TABLE audit_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    user_id INTEGER,
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     username VARCHAR(50),
     action VARCHAR(50) NOT NULL,
     entity_type VARCHAR(50) NOT NULL,
     entity_id VARCHAR(50),
-    details JSON, -- Structured audit state
+    details JSONB, -- Rich JSON structured before/after state
     ip_address VARCHAR(45),
     request_id VARCHAR(64)
 );
-
 CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp);
 CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+
+CREATE TABLE export_tickets (
+    token_hash VARCHAR(64) PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX idx_export_tickets_expires ON export_tickets(expires_at, used);
 ```
 
 ---
 
-## 5. Architectural Component Disposition: Rebuild, Refactor, and Reuse
+## 5. Exact Financial Invariants & Arithmetic Contracts
 
-### 5.1 What Can Be Rebuilt from Scratch (Clean-Slate)
-1. **Relational Database DDL & Data Models:** Complete fresh schema (above) cleanly segregating `purchase_orders` from `commercial_invoices`.
-2. **Server-Side Reporting Engine:** Fresh SQL aggregation functions for AR Aging buckets, Executive Attainment, Collections Ledger, and Dashboard KPIs.
-3. **Sales Target Endpoints:** New top-level RESTful API (`/api/targets`) supporting multi-period quota queries and department summaries.
-4. **Synthetic Fixture Generator:** High-fidelity, deterministic seed script initializing the exact approved Phase 3 baseline (`INV-2026-042` and `PO-NEXUS-881`).
+### 5.1 Financial Representation & Precision
+- **Authoritative Invariant:** Floating-point representations (`float`, `double`) are strictly prohibited in database persistence and backend calculation services.
+- **Python Arithmetic:** Evaluated strictly using `from decimal import Decimal, ROUND_HALF_UP`.
+- **JSON Serialization:** Financial numbers are transmitted in API payloads as JSON numbers formatted to exactly 2 decimal places (e.g. `531000.00`).
 
-### 5.2 What Should Be Reused Intact
-1. **Database Path & Environment Isolation (`app/database.py`):** Canonical path verification, symlink defense, `COLLECTFLOW_ENV=integration` checks, and loopback listener binding.
-2. **Immediate Transaction Write Locks (`transaction()`):** `BEGIN IMMEDIATE` pattern guaranteeing serialized writes in WAL mode.
-3. **PBKDF2 Password Hashing & Token Generators (`app/routers/auth.py`):** Secure cryptography with 120,000 iterations and 16-byte random salts.
-4. **Exact-Origin CORS Middleware (`app/main.py`):** Strict loopback allowlists rejecting public origins and wildcard `*`.
-5. **OpenPyXL Export Engine Core (`app/routers/export.py`):** 17-column layout, header fill `#1F4E79`, currency format `₹#,##0.00`, and formula injection sanitization.
+### 5.2 Line-Item vs. Invoice-Total Calculations
+1. **Line-Item Arithmetic:**
+   $$\text{item.exclusive\_amount} = \text{quantize}(\text{item.quantity} \times \text{item.unit\_price})$$
+   $$\text{item.tax\_amount} = \text{quantize}(\text{item.exclusive\_amount} \times \text{item.tax\_rate})$$
+   $$\text{item.total\_amount} = \text{item.exclusive\_amount} + \text{item.tax\_amount}$$
+2. **Invoice Totals (Sum-of-Items Invariant):**
+   $$\text{invoice.exclusive\_amount} = \sum \text{items.exclusive\_amount}$$
+   $$\text{invoice.tax\_amount} = \sum \text{items.tax\_amount}$$
+   $$\text{invoice.total\_amount} = \text{invoice.exclusive\_amount} + \text{invoice.tax\_amount}$$
 
-### 5.3 What Must Remain Functionally Compatible with Approved Frontend
-1. **TanStack Router Route Hierarchy:** Full compatibility with `/`, `/orders`, `/invoices`, `/payments`, `/customers`, `/sales-targets`, `/performance-analytics`, `/users`, `/reports`, `/ar-aging`, `/settings`, and `/login`.
-2. **Frontend Invariants & Financial Baseline:**
-   - Total Invoiced: ₹5,31,000
-   - Cash Collected: ₹2,00,000
-   - TDS Deducted: ₹9,000
-   - Settled Amount: ₹2,09,000
-   - Outstanding AR: ₹3,22,000
-   - Unbilled POs: ₹2,95,000
-   - Pinned Reporting Date: 30 April 2026
-3. **Dual-Mode ApiClient Contract:** Live mode network calls adhere to standard REST contracts while mock mode remains untouched for offline demonstration.
+### 5.3 GST Breakdown (CGST / SGST / IGST)
+- If customer state equals company home state (Intra-state, e.g. Karnataka to Karnataka):
+  $$\text{CGST Rate} = \frac{\text{tax\_rate}}{2}, \quad \text{SGST Rate} = \frac{\text{tax\_rate}}{2}, \quad \text{IGST Rate} = 0.0000$$
+- If customer state differs from company home state (Inter-state):
+  $$\text{IGST Rate} = \text{tax\_rate}, \quad \text{CGST Rate} = 0.0000, \quad \text{SGST Rate} = 0.0000$$
 
----
+### 5.4 Settlement Allocation & Overpayment Prevention
+For any invoice $i$:
+$$\text{Total Cash} = \sum_{t \in \text{tx}(i)} t.\text{cash\_amount}, \quad \text{Total TDS} = \sum_{t \in \text{tx}(i)} t.\text{tds\_amount}$$
+$$\text{Total Settled} = \text{Total Cash} + \text{Total TDS}$$
+$$\text{Outstanding Balance} = \begin{cases} 0.00 & \text{if lifecycle\_status} = \text{'CANCELLED'} \\ \max(0.00, \text{invoice.total\_amount} - \text{Total Settled}) & \text{otherwise} \end{cases}$$
 
-## 6. Financial Integrity, Accounting Controls & Statutory Guarantees
+- **Overpayment Guard:** Under database row lock, any transaction where $(\text{Total Settled} + \text{new.total\_settled}) > \text{invoice.total\_amount}$ is rejected with HTTP 400:
+  `"Total settlement amount (Cash ₹... + TDS ₹... = ₹...) exceeds the outstanding balance of ₹..."`
 
-While development data is disposable, the redesigned backend enforces strict business accounting rules:
-
-1. **Exact 2-Decimal Quantization:**
-   All amounts are stored as exact 2-decimal numbers. Zero floating-point rounding errors are permitted.
-2. **Statutory Invoice Immutability:**
-   Once a commercial invoice is issued (`invoice_number` assigned), financial amounts (`exclusive_amount`, `tax_rate`, `total_amount`), customer identity, and issue dates cannot be updated or deleted.
-3. **Cancellation Legality & Audit Lock:**
-   An issued invoice can only be marked `CANCELLED` if zero payment records exist. If payments exist, cancellation is strictly rejected with HTTP 400. Cancellation requires a mandatory operational reason, sets outstanding balance to ₹0.00, and is recorded in `audit_logs`.
-4. **Quota Attainment Rule:**
-   Executive sales quota attainment is computed strictly on **tax-exclusive invoiced sales** (`commercial_invoices.exclusive_amount` where `lifecycle_status != 'CANCELLED'`). Unbilled purchase orders are legally excluded from revenue attainment.
-5. **Deterministic As-Of AR Aging:**
-   Aging buckets are computed dynamically using an explicit parameter `?as_of_date=YYYY-MM-DD` (defaulting to current date if omitted), guaranteeing identical audit reconciliation between frontend and backend.
+### 5.5 Quota Attainment Invariant
+Sales achievement is evaluated strictly on **tax-exclusive invoiced sales**:
+$$\text{Actual Sales} = \sum \text{exclusive\_amount} \quad \text{for } \text{commercial\_invoices} \text{ where } \text{lifecycle\_status} \neq \text{'CANCELLED'}$$
+- **Statutory Exclusion:** Unbilled purchase orders and cancelled invoices are legally excluded from revenue attainment.
 
 ---
 
-## 7. Phased Implementation Roadmap & Acceptance Gates
+## 6. Financial History & Non-Destructive Corrections Model
+
+### 6.1 Posted Payment Adjustments
+Rather than physically deleting payment rows (which breaks accounting traceability), the administrative correction workflow operates as an auditable replacement:
+1. **Reversal Event:** The user requests correction of Payment `#84` (Cash ₹2,00,000, TDS ₹9,000). The system inserts a compensating reversal transaction `#85` (`transaction_type = 'REVERSAL'`, `cash_amount = -200000.00`, `tds_amount = -9000.00`, `parent_transaction_id = 84`).
+2. **Replacement Event:** The system inserts the corrected replacement transaction `#86` (`transaction_type = 'PAYMENT'`, `cash_amount = +190000.00`, `tds_amount = +9000.00`, `parent_transaction_id = 84`).
+3. **Audit Log:** An event `PAYMENT_CORRECTED` is recorded in `audit_logs` capturing reason, user, and previous vs. new values.
+4. **Historical Reconciliation:** Reconstructing AR aging as of any past date $T$ is calculated strictly by summing events where $\text{payment\_date} \le T$.
+
+### 6.2 Invoice Cancellation Controls
+- **Statutory Guard:** Cancellation is strictly blocked with HTTP 400 if net settlement on the invoice $> 0.00$. All payments must be formally reversed prior to cancellation.
+- **Audit Record:** Cancellation updates `lifecycle_status = 'CANCELLED'`, sets `cancelled_at = NOW()`, `cancelled_by = user.id`, records `cancellation_reason`, and logs `INVOICE_CANCELLED` to `audit_logs`.
+
+---
+
+## 7. Security Architecture: OWASP Argon2id & RBAC
+
+### 7.1 Modern Password Hashing: Argon2id
+OWASP explicitly recommends **Argon2id** for password storage:
+- **Parameters:** `argon2-cffi` configured with $m=65536$ (64 MiB memory cost), $t=3$ (iterations), $p=4$ (parallelism).
+- **Migration Rationale:** Clean-slate development allows immediate adoption of Argon2id without supporting legacy PBKDF2 hashes.
+
+### 7.2 Strict RBAC Matrix
+
+| Role | Customers | Orders Read/Write | Invoices Read | Invoices Write | Payments Record/Correct | Targets View/Manage | Reports Hub | Export Excel/CSV | User Administration |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `admin` | Full | Full | Full | Full | Full | Full | Full | Full | Full |
+| `finance` | Full | Full | Full | Full | Full | Full | Full | Full | Blocked (403) |
+| `sales` | Read/Create | Unbilled Only | Full | Blocked (403) | Blocked (403) | Own Target Only | Quota Only | Blocked (403) | Blocked (403) |
+| `viewer` | Read Only | Read Only | Read Only | Blocked (403) | Blocked (403) | Read Only | Read Only | Blocked (403) | Blocked (403) |
+
+*Export RBAC Policy Note:* The business decision to restrict exports strictly to `admin` and `finance` (blocking `sales` and `viewer`) is preserved as a pending architecture policy, ready for immediate enforcement in Stage 4C.
+
+---
+
+## 8. Complete API Contract Inventory
+
+| HTTP Method & Endpoint | Description & Domain | RBAC Requirement | Expected Input / Output Format |
+|---|---|:---:|---|
+| `POST /api/auth/login` | Identity authentication | Public | In: `{username, password}` → Out: `{token, user}` |
+| `GET /api/auth/me` | Current session user profile | Authenticated | Out: `{authenticated: true, user: UserProfile}` |
+| `POST /api/auth/logout` | Session token revocation | Authenticated | Out: `{success: true, message: "Logged out"}` |
+| `GET /api/customers` | Master customer directory | Authenticated | Out: `CustomerSummary[]` with financial exposure |
+| `POST /api/customers` | Create master customer | `admin`, `finance`, `sales` | In: `CustomerCreatePayload` → Out: `CustomerProfile` |
+| `GET /api/orders` | List unbilled purchase orders | Authenticated | Out: `{page, limit, total, data: PurchaseOrder[]}` |
+| `POST /api/orders` | Register purchase order | `admin`, `finance`, `sales` | In: `PurchaseOrderCreate` → Out: `PurchaseOrder` |
+| `POST /api/orders/{id}/convert` | Convert PO to commercial invoice | `admin`, `finance` | In: `{invoice_number, invoice_date, due_date}` |
+| `GET /api/invoices` | List issued commercial invoices | Authenticated | Out: `{page, limit, total, data: InvoiceSummary[]}` |
+| `GET /api/invoices/{id}` | Detailed invoice with items/payments | Authenticated | Out: `{invoice, items, payments}` |
+| `POST /api/invoices/{id}/cancel` | Statutory invoice cancellation | `admin`, `finance` | In: `{reason: string}` → Out: `{success: true}` |
+| `GET /api/payments` | Master settlement ledger | Authenticated | Out: `{data: PaymentLedgerRow[], summary}` |
+| `POST /api/payments` | Record settlement (Cash/TDS) | `admin`, `finance` | In: `PaymentCreateInput` (with `idempotency_key`) |
+| `POST /api/payments/{id}/correct` | Non-destructive payment adjustment | `admin`, `finance` | In: `{reason, corrected_cash, corrected_tds}` |
+| `GET /api/targets` | List sales targets by FY | Authenticated | Out: `{fy_code, targets: SalesTarget[]}` |
+| `POST /api/targets/{user_id}` | Set multi-period quota | `admin`, `finance` | In: `TargetUpdatePayload` → Out: `SalesTarget` |
+| `GET /api/reporting/summary` | Dashboard KPI summary | Authenticated | Query: `?fy=...&as_of_date=...` → Out: `DashboardKPIs` |
+| `GET /api/reporting/ar-aging` | 6-bucket AR Aging analysis | Authenticated | Query: `?as_of_date=...` → Out: `ArAgingReport` |
+| `GET /api/reporting/attainment` | Executive attainment leaderboard | Authenticated | Query: `?fy=...` → Out: `ExecutiveAttainmentReport` |
+| `POST /api/export/token` | Short-lived single-use export ticket | `admin`, `finance` | Out: `{ticket, expires_in: 300}` |
+| `GET /api/export/excel` | 17-column openpyxl Excel stream | `admin`, `finance` | Query: `?ticket=...&fy=...` → `application/vnd...` |
+| `GET /api/export/csv` | Formula-sanitized CSV stream | `admin`, `finance` | Query: `?ticket=...&fy=...` → `text/csv` |
+| `GET /api/settings/references` | FY, GST, and TDS reference master | Authenticated | Out: `{years, gst_rates, tds_sections}` |
+| `GET /api/users` | Master user directory | Authenticated | Out: `UserSummary[]` |
+| `POST /api/users` | Create user profile | `admin` | In: `UserCreatePayload` → Out: `UserSummary` |
+| `PUT /api/users/{id}/role` | Update user role | `admin` | In: `{role: string}` → Out: `UserSummary` |
+| `DELETE /api/users/{id}` | Deactivate user profile | `admin` | Soft deactivation protecting historical financial records |
+
+---
+
+## 9. Phased Implementation Roadmap & Acceptance Gates
+
+To guarantee quality, implementation is structured into small, independently testable stages:
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│ Stage 4C Implementation Phases (Clean-Slate Architecture)              │
-├───────────────────┬────────────────────────────────────────────────────┤
-│ Stage 4C.1        │ Database Clean-Slate & Core Domain Structure       │
-│ (Core DB & Master)│ - Deploy clean schema & synthetic seed generator   │
-│                   │ - Modularize app/domains/ directory structure      │
-├───────────────────┼────────────────────────────────────────────────────┤
-│ Stage 4C.2        │ Orders, Commercial Invoices & Conversion Engine    │
-│ (Transactions)    │ - Implement purchase_orders & commercial_invoices  │
-│                   │ - Enforce conversion workflow & immutability       │
-├───────────────────┼────────────────────────────────────────────────────┤
-│ Stage 4C.3        │ Settlements, TDS Ledger & Administrative Correct.  │
-│ (Settlements)     │ - Implement payment_settlements with 194C/194J     │
-│                   │ - Enforce overpayment guards & idempotency replay  │
-├───────────────────┼────────────────────────────────────────────────────┤
-│ Stage 4C.4        │ Server-Side Reporting Hub & Quota Attainment       │
-│ (Analytics)       │ - Build server-side AR Aging, KPIs & Leaderboard   │
-│                   │ - Wire frontend Reports Hub to live endpoints      │
-├───────────────────┼────────────────────────────────────────────────────┤
-│ Stage 4C.5        │ Dual-Mode UAT, Live Browser Acceptance & Review    │
-│ (Verification)    │ - Full 15-check Playwright browser regression run  │
-│                   │ - Full pytest integration suite execution          │
-└───────────────────┴────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ Stage 4C Phased Implementation Roadmap                                                 │
+├───────────────────┬────────────────────────────────────────────────────────────────────┤
+│ Stage 4C.0        │ Architecture Design & OpenAPI Contract Freeze                      │
+│ (0.5 Days)        │ - Pydantic models, JSON schemas & contract freeze                  │
+│                   │ - Preflight alignment with frontend src/data/ types                │
+├───────────────────┼────────────────────────────────────────────────────────────────────┤
+│ Stage 4C.1        │ PostgreSQL Schema, Alembic Migrations & Fixture Seed               │
+│ (2.0 Days)        │ - Complete DDL implementation in PostgreSQL 16                     │
+│                   │ - Deterministic synthetic seed generator for approved baseline    │
+├───────────────────┼────────────────────────────────────────────────────────────────────┤
+│ Stage 4C.2        │ Auth, Identity & Master References                                 │
+│ (1.5 Days)        │ - Argon2id password hashing & ephemeral live sessions              │
+│                   │ - Customer master & GST/TDS reference domain services              │
+├───────────────────┼────────────────────────────────────────────────────────────────────┤
+│ Stage 4C.3        │ Orders, Invoices & Statutory Conversion Engine                     │
+│ (2.0 Days)        │ - Purchase orders, commercial tax invoices & line items            │
+│                   │ - Legal immutability guards & cancellation audit workflow          │
+├───────────────────┼────────────────────────────────────────────────────────────────────┤
+│ Stage 4C.4        │ Payments, TDS Ledger & Non-Destructive Adjustments                 │
+│ (1.5 Days)        │ - payment_transactions with 194C/194J validations                  │
+│                   │ - Overpayment checks under row lock & compensating adjustments     │
+├───────────────────┼────────────────────────────────────────────────────────────────────┤
+│ Stage 4C.5        │ Sales Targets & Server-Side Reporting Hub                          │
+│ (2.0 Days)        │ - Server-side AR Aging (6 buckets), Attainment, and Dashboard KPIs │
+│                   │ - 17-column openpyxl Excel & CSV streaming exports                 │
+├───────────────────┼────────────────────────────────────────────────────────────────────┤
+│ Stage 4C.6        │ End-to-End Live Integration, Playwright UAT & Review               │
+│ (1.5 Days)        │ - Live multi-viewport Playwright suite (1440px, 768px, 390px, 320px)│
+│                   │ - Final financial reconciliation & STAGE_4C_REVIEW.md report       │
+└───────────────────┴────────────────────────────────────────────────────────────────────┘
 ```
 
-### Stage Gate Acceptance Criteria
-- [ ] Fresh synthetic sandbox database seeds verified baseline (`INV-2026-042` and `PO-NEXUS-881`).
-- [ ] 100% of backend tests pass against the new modular structure.
-- [ ] 100% of frontend Vitest tests pass (537+ tests).
-- [ ] All 10 Playwright live browser authentication checks pass against the running sandbox.
-- [ ] Reports hub displays exact matching financial invariants across all 4 responsive viewports (1440px, 768px, 390px, 320px).
-- [ ] Reset Demo cleanly restores in-memory mock fixtures without side effects on live backend data.
+**Total Realistic Effort Estimate:** **11.0 Engineering Days** (Detailed breakdown based on explicit entity modeling, PostgreSQL parity setup, Argon2id adoption, and end-to-end multi-viewport browser verification).
 
 ---
 
-## 8. Effort & Risk Analysis
+## 10. Automated Test & Verification Matrix
 
-### Relative Effort Estimation
-
-- **Stage 4C.1 (Clean DB & Domain Structure):** 1.5 Engineering Days
-- **Stage 4C.2 (Orders & Invoices Domain):** 1.5 Engineering Days
-- **Stage 4C.3 (Settlements & TDS Domain):** 1.5 Engineering Days
-- **Stage 4C.4 (Reporting Hub & Sales Targets):** 2.0 Engineering Days
-- **Stage 4C.5 (Live Browser UAT & Regression):** 1.5 Engineering Days
-- **Total Estimated Effort:** **8.0 Engineering Days** (Reduced from 9.0 days because legacy data migration complexity is eliminated).
-
-### Risk Management
-
-| Risk Factor | Impact | Likelihood | Mitigation Strategy |
-|---|:---:|:---:|---|
-| **Accidental Production DB Overwrite** | Critical | Negligible | Hardened path verification in `app/database.py` strictly prevents startup unless path explicitly contains `sandbox`, `integration`, or `test`. |
-| **Frontend/Backend Contract Mismatch** | High | Low | Contracts derived directly from approved frontend TypeScript types in `src/data/`. |
-| **Floating-Point Rounding Drifts** | High | Low | Python `Decimal` with `ROUND_HALF_UP` enforced on all monetary operations. |
+| Verification Tier | Target & Tooling | Success Criteria | Scope |
+|---|---|---|---|
+| **Tier 1: Backend Unit & Concurrency** | pytest + PostgreSQL Test Container | 100% Pass (100+ tests) | Exact decimal arithmetic, GST splitting, overpayment rejection, row-lock concurrency, Argon2id hashing. |
+| **Tier 2: Frontend Integration** | Vitest (`npm test`) | 100% Pass (537+ tests) | Type-safe `ApiClient` contracts, offline mock mode regression, form validation. |
+| **Tier 3: Live Browser Acceptance** | Playwright (`chromium`) | 100% Pass (20+ tests) | Real browser authentication, order creation, invoice conversion, settlement ledger, Reports Hub live rendering. |
+| **Tier 4: Responsive Verification** | Playwright Viewports | 100% Pass (4 viewports) | 1440px desktop, 768px tablet, 390px mobile, 320px narrow mobile with zero horizontal overflow or clipping. |
+| **Tier 5: Financial Invariant Audit** | Automated Script | Exact Match (0.00 delta) | Total Invoiced: ₹5,31,000, Settled: ₹2,09,000, Outstanding: ₹3,22,000, Unbilled: ₹2,95,000. |
 
 ---
-*Report submitted for independent architecture review. Implementation on hold pending formal approval.*
+
+## 11. Open Business-Policy Decisions for Product Owner
+
+1. **Export RBAC Business Policy:** The backend currently allows all authenticated roles to download exports. The proposed architecture enforces `admin` and `finance` only (blocking `sales` and `viewer`). Requires formal confirmation.
+2. **Customer Soft Deactivation Policy:** When a customer is marked inactive, should open purchase orders remain convertible to invoices, or must all active orders be resolved before deactivation?
+3. **Foreign Currency Settlements:** Should payments against USD/EUR invoices be recorded in foreign currency with realized forex gain/loss calculations, or converted to INR at the invoice exchange rate?
+
+---
+*Report submitted for final architecture review. Implementation on hold pending formal approval.*
