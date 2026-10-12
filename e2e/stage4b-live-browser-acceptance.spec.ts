@@ -129,9 +129,17 @@ test.describe("CollectFlow Phase 4 Stage 4B: Live Browser Authentication Accepta
       }
     });
 
+    const loginPromise = page.waitForResponse(
+      (res) => res.url().includes("/api/auth/login") && res.request().method() === "POST"
+    );
+
     await page.getByLabel("Username").fill("sandbox_admin");
     await page.getByLabel("Password").fill("AdminPass123!");
     await page.getByRole("button", { name: /Sign In/i }).click();
+
+    const loginResponse = await loginPromise;
+    const body = await loginResponse.json();
+    sessionToken = body.token;
 
     await expect(page.getByRole("status")).toContainText(/Authenticated as sandbox_admin/i);
     expect(sessionToken.length).toBe(64);
