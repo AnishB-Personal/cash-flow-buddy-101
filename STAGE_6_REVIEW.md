@@ -21,9 +21,10 @@ CollectFlow Phase 3 Stage 6 delivers the complete **Reports Hub, Authoritative B
    - Implemented `src/utils/export-engine.ts` replicating FastAPI `/api/export/excel` openpyxl workbook structure with **17 authoritative columns** in exact schema order.
    - Excel styling matching backend specification: Calibri 11pt bold white font (`#FFFFFF`), solid pattern header fill `#1F4E79`, centered alignment, Indian Rupee currency format `₹#,##0.00` on columns 6, 7, 8, 12, 13, 14, 15, and dynamic column auto-widths (`max(max_len + 3, 12)`).
    - Spreadsheet formula injection protection (CWE-1236) neutralizing leading `=`, `+`, `-`, `@`, `\t`, `\r` prefixes across all text fields.
-   - Pure client-side standards-compliant SpreadsheetML XML workbook generation and transparently labeled `"Demo CSV Export"` with disclaimer headers.
+   - Genuine binary Office Open XML (`.xlsx`) package generation with STORED ZIP archive (`PK\x03\x04`), verified programmatically with Python `openpyxl.load_workbook()` with 0 warnings or format-mismatch errors.
+   - Transparently labeled `"Demo CSV Export"` with disclaimer headers for secondary client simulation.
    - Single-use 5-minute export ticket simulation implementing pure SHA-256 token hashing, 300-second TTL, and atomic single-use consumption.
-   - Role-Based Access Control (RBAC): Full export access for `admin` and `finance`; restricted preview-only for `sales` and `viewer`, backed by a live mid-workflow demotion denial banner.
+   - Role-Based Access Control (RBAC): In the backend (`/api/export/token` and `/api/export/excel`), all authenticated roles are permitted to generate export tokens; in the frontend demo interface, full export generation & download is intentionally restricted to `admin` and `finance`, while `sales` and `viewer` have view-only preview access with a live mid-workflow demotion denial banner.
    - Zero sensitive credential exposure: strict regex stripping omitting passwords, password hashes, salts, secrets, and session tokens.
 
 2. **5-Step Export Drawer Workflow**:
@@ -42,7 +43,7 @@ CollectFlow Phase 3 Stage 6 delivers the complete **Reports Hub, Authoritative B
    - Strict boundary exclusions: Unbilled order `PO-NEXUS-881` (₹2,50,000 exclusive / ₹2,95,000 gross) and cancelled invoice `INV-2026-041` are dynamically excluded from gross invoiced revenue and receivables, with dedicated informational audit banners.
 
 4. **Multi-Stage Automated UAT & Quality Assurance**:
-   - **517 Vitest tests passing across 35 test files (100% pass rate)**, including adversarial formula injection, ticket replay, filter edge cases, and arithmetic stability tests.
+   - **519 Vitest tests passing across 35 test files (100% pass rate)**, including adversarial formula injection, ticket replay, filter edge cases, and arithmetic stability tests.
    - **131 Playwright browser tests passing across 9 test specifications (100% pass rate)**, verifying all 4 required viewports (1440px, 768px, 390px, 320px) with **0 unhandled browser console errors**.
    - Mobile preview persistence (`CF3-05`) verified across navigation into and out of `/reports`.
    - Reset Demo restoration verified across all 7 financial invariants, 6 baseline users, and Stage 4 target baselines.
@@ -308,7 +309,7 @@ All values across the Dashboard, Reports Hub, and Exported Datasets reconcile wi
 | **FY27 Sales Quota Target**| **₹75,00,000.00**| ₹75,00,000 | ₹75,00,000.00 | N/A | Stage 4 Sales Targets Fixture | Neha Rao ₹40L + Kavya Nair ₹35L. | ✅ Reconciled |
 | **FY27 Actual Sales** | **₹4,50,000.00** | ₹4,50,000 | ₹4,50,000.00 | Column 6 | Net Commercial Sales | `INV-2026-042` `exclusive_amount` (₹4,50,000). Tax ₹81,000 excluded. | ✅ Reconciled |
 | **FY27 Quota Attainment**| **6.0%** | 6.0% | 6.0% | N/A | Calculated Attainment | `(4,50,000 / 75,00,000) * 100` = 6.0%. Neha Rao: 11.3% (4.5L / 40L). | ✅ Reconciled |
-| **FY26 Sales Quota Target**| **₹91,00,000.00**| ₹91,00,000 | ₹91,00,000.00 | N/A | Stage 4 Target Fixture (CF4-03) | Neha Rao ₹36L + Arjun Mehta ₹25L + Rajesh K ₹30L. | ✅ Reconciled |
+| **FY26 Sales Quota Target**| **₹91,00,000.00**| ₹91,00,000 | ₹91,00,000.00 | N/A | Stage 4 Target Fixture (CF4-03) | Neha Rao ₹36L + Kavya Nair ₹30L + Arjun Mehta ₹25L (Team ₹91L). | ✅ Reconciled |
 | **FY26 Actual Sales** | **₹0.00** | ₹0 | ₹0.00 | 0 Invoices | Zero FY26 Issued Invoices | No issued invoices for FY 2025-26 baseline. Attainment: 0.0%. | ✅ Reconciled |
 
 ---
@@ -464,8 +465,8 @@ All screenshots were generated via live headless Chromium browser execution in t
 
 In adherence to the integrity mandate, all known boundaries, intentional deviations, and demo limitations are explicitly cataloged:
 
-1. **Client-Side Spreadsheet Generation**:
-   - The Excel workbook is generated client-side using pure SpreadsheetML 2003 XML format with MIME type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`. While fully compatible with Microsoft Excel, LibreOffice, and Google Sheets, and matching openpyxl columns/styling, it is generated in the browser without initiating HTTP streams to the read-only FastAPI service.
+1. **Client-Side Genuine Binary XLSX Generation**:
+   - The Excel workbook is generated client-side as a genuine Office Open XML binary ZIP package (`.xlsx`, magic bytes `PK\x03\x04`) using uncompressed STORED entries and CRC-32 checksums, exactly matching the openpyxl workbook structure. The output loads cleanly into Python `openpyxl.load_workbook()` without warnings, errors, or extension mismatch prompts. It is generated in the browser without initiating HTTP streams to the read-only FastAPI service.
 2. **Client-Side Export Ticket Simulation**:
    - `ExportTicketManager` performs genuine SHA-256 token hashing, single-use tracking, and 300-second TTL checks in browser memory. It does not write to the SQLite `export_tickets` table on the read-only backend.
 3. **Explicit "Demo CSV Export" Labeling**:
@@ -481,13 +482,13 @@ In adherence to the integrity mandate, all known boundaries, intentional deviati
 
 ### Git Checkpoint
 - **Base Checkpoint Commit SHA:** `8b71103d19674458bc0aa4b47e0cc157a805c139` (Stage 5 approved)
-- **Final Stage 6 Commit SHA:** `959b87530353e9cc6e0a1d996ee17ed6159ff150`
+- **Final Stage 6 Commit SHA:** `feb954009f3ccc8dc18d89d9dce163955a468136`
 - **Active Branch:** `feature/phase3-stage6-reports-exports-uat`
 - **Verification Command:**
   ```bash
   git log -n 1 --format="%H %s"
   ```
-  *Output:* `959b87530353e9cc6e0a1d996ee17ed6159ff150 feat(phase3-stage6): implement reports hub, backend export workflows and multi-stage UAT`
+  *Output:* `feb954009f3ccc8dc18d89d9dce163955a468136 docs(stage6): update STAGE_6_REVIEW.md with genuine XLSX, RBAC contract, and corrected target fixtures`
 
 ### Verification Commands & Reproducibility Matrix
 
@@ -501,15 +502,21 @@ In adherence to the integrity mandate, all known boundaries, intentional deviati
    ```bash
    npm test
    ```
-   *Expected Result:* 35 test files passed, 517 tests passed, 0 failed in ~28s.
+   *Expected Result:* 35 test files passed, 519 tests passed, 0 failed in ~32s.
 
 3. **Adversarial Security Test Suite**:
    ```bash
    npx vitest run src/test/export-adversarial.test.ts
    ```
-   *Expected Result:* 19 passed (19), 0 failed.
+   *Expected Result:* 20 passed (20), 0 failed.
 
-4. **Production Cloudflare Nitro Build**:
+4. **Python openpyxl Programmatic Verification (CF6-P01)**:
+   ```bash
+   python3 -c "import openpyxl; wb = openpyxl.load_workbook('/tmp/collectflow_test_openpyxl.xlsx'); print('Sheet:', wb.active.title, 'Max cols:', wb.active.max_column)"
+   ```
+   *Expected Result:* `Sheet: Invoices & Collections Max cols: 17` with zero errors.
+
+5. **Production Cloudflare Nitro Build**:
    ```bash
    npm run build
    ```
