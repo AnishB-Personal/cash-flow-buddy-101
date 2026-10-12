@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import { execSync } from "node:child_process";
 import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import {
@@ -648,6 +650,77 @@ describe("Adversarial Challenge 3: RBAC & Sensitive Data Sanitization", () => {
       // Zero collisions
       expect(ticketSet.size).toBe(500);
       expect(hashSet.size).toBe(500);
+    });
+
+    it("verifies genuine XLSX binary package neutralizes adversarial formula injection when read by openpyxl (CF6-P01)", () => {
+      const hostileInvoice: Invoice = {
+        id: 778,
+        fy_code: "=DANGEROUS()",
+        order_type: "PO",
+        po_number: "+PO-CMD-EXEC",
+        po_date: "2026-04-20",
+        customer_id: 1,
+        executive_id: 3,
+        customer_name: "@hostile_customer",
+        customer_gstin: "29AAAAA0000A1Z5",
+        customer_address: "\tAddress Tabbed",
+        customer_state: "Karnataka",
+        currency: "INR",
+        exchange_rate: 1.0,
+        original_amount: 100000.0,
+        exclusive_amount: 100000.0,
+        tax_rate: 0.18,
+        tax_amount: 18000.0,
+        total_amount: 118000.0,
+        invoice_number: "-INV-POISON",
+        invoice_date: "2026-04-21",
+        due_date: "2026-05-21",
+        remarks: "Normal",
+        payment_status: "PENDING",
+        total_cash_paid: 0.0,
+        total_tds_deducted: 0.0,
+        total_paid: 0.0,
+        outstanding_balance: 118000.0,
+        computed_status: "=STATUS_EXPLOIT",
+        executive_name: "\rCarriage Return Executive",
+        line_items: [],
+        payments: [],
+      };
+
+      const rows = compileExportRows([hostileInvoice], "ALL");
+      const { bytes } = generateExcelBlob(rows, "ALL");
+
+      // Verify ZIP magic bytes
+      expect(bytes[0]).toBe(0x50);
+      expect(bytes[1]).toBe(0x4b);
+
+      const tmpPath = "/tmp/collectflow_adversarial_openpyxl.xlsx";
+      fs.writeFileSync(tmpPath, bytes);
+
+      const pyScript = `import openpyxl
+
+wb = openpyxl.load_workbook('${tmpPath}')
+ws = wb.active
+
+# Row 2 contains hostile values prepended with single quote
+fy = ws.cell(2, 1).value
+po_num = ws.cell(2, 3).value
+cust = ws.cell(2, 4).value
+inv = ws.cell(2, 9).value
+status = ws.cell(2, 16).value
+
+assert fy == "'=DANGEROUS()", f"FY mismatch: {fy}"
+assert po_num == "'+PO-CMD-EXEC", f"PO mismatch: {po_num}"
+assert cust == "'@hostile_customer", f"Customer mismatch: {cust}"
+assert inv == "'-INV-POISON", f"Invoice mismatch: {inv}"
+assert status == "'=STATUS_EXPLOIT", f"Status mismatch: {status}"
+
+print('ADVERSARIAL_OPENPYXL_SUCCESS')
+`;
+      const pyScriptPath = "/tmp/collectflow_verify_adversarial.py";
+      fs.writeFileSync(pyScriptPath, pyScript);
+      const pyOutput = execSync(`python3 ${pyScriptPath}`).toString().trim();
+      expect(pyOutput).toBe("ADVERSARIAL_OPENPYXL_SUCCESS");
     });
   });
 });

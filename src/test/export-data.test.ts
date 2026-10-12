@@ -19,9 +19,13 @@ import {
   calculateExportTotals,
   generateExcelXml,
   generateExcelBlob,
+  generateXlsxZipBytes,
+  createStoredZip,
   generateDemoCsv,
   type ExportRow,
 } from "@/utils/export-engine";
+import fs from "node:fs";
+import { execSync } from "node:child_process";
 import { data as fixtureData, type Invoice } from "@/data/collectflow";
 
 describe("Export Engine — Authoritative Columns & Structure", () => {
@@ -367,13 +371,57 @@ describe("Export Engine — Excel XML Workbook Generation & Styling", () => {
     }
   });
 
-  it("generates Excel blob with valid MIME type and filename", () => {
+  it("generates Excel blob with valid MIME type, filename, and genuine ZIP PK magic bytes (CF6-P01)", () => {
     const rows = compileExportRows(fixtureData.invoices, "FY 2026-27");
-    const { blob, filename } = generateExcelBlob(rows, "FY 2026-27");
+    const { blob, filename, bytes } = generateExcelBlob(rows, "FY 2026-27");
 
     expect(filename).toBe("CollectFlow_Export_FY_2026-27.xlsx");
-    expect(blob.type).toContain("spreadsheetml.sheet");
+    expect(blob.type).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     expect(blob.size).toBeGreaterThan(0);
+    expect(bytes.length).toBeGreaterThan(0);
+
+    // Verify genuine PKZip 2.0 magic bytes: PK\x03\x04
+    expect(bytes[0]).toBe(0x50); // 'P'
+    expect(bytes[1]).toBe(0x4b); // 'K'
+    expect(bytes[2]).toBe(0x03);
+    expect(bytes[3]).toBe(0x04);
+  });
+
+  it("produces genuine XLSX package verifiable programmatically by Python openpyxl (CF6-P01)", () => {
+    const rows = compileExportRows(fixtureData.invoices, "ALL");
+    const { bytes } = generateExcelBlob(rows, "ALL");
+
+    const tmpPath = "/tmp/collectflow_test_openpyxl.xlsx";
+    fs.writeFileSync(tmpPath, bytes);
+
+    const pyScript = `import openpyxl
+
+wb = openpyxl.load_workbook('${tmpPath}')
+ws = wb.active
+assert ws.title == 'Invoices & Collections', f'Bad title: {ws.title}'
+assert ws.max_column == 17, f'Bad cols: {ws.max_column}'
+
+headers = [ws.cell(1, col).value for col in range(1, 18)]
+assert headers[0] == 'FY'
+assert headers[5] == 'Exclusive Amount (₹)'
+assert headers[16] == 'Days Overdue'
+
+# Check header styling
+h1 = ws.cell(1, 1)
+assert h1.font.bold is True
+assert h1.font.name == 'Calibri'
+assert h1.fill.fgColor.rgb == 'FF1F4E79'
+
+# Check currency format
+c_curr = ws.cell(2, 6)
+assert c_curr.number_format == '₹#,##0.00'
+
+print('SUCCESS')
+`;
+    const pyScriptPath = "/tmp/collectflow_verify_openpyxl.py";
+    fs.writeFileSync(pyScriptPath, pyScript);
+    const pyOutput = execSync(`python3 ${pyScriptPath}`).toString().trim();
+    expect(pyOutput).toBe("SUCCESS");
   });
 });
 
