@@ -565,6 +565,8 @@ export function getExecutiveAttainmentReport(
   const executiveFilter =
     scope?.executive && scope.executive !== "All executives" ? scope.executive : null;
 
+  const query = scope?.query?.trim().toLowerCase() || "";
+
   const fyTargets = targets.filter((t) => t.fy_code === activeFy);
   const rows: ExecutiveAttainmentRow[] = [];
 
@@ -572,6 +574,7 @@ export function getExecutiveAttainmentReport(
 
   for (const t of fyTargets) {
     if (executiveFilter && t.user_name !== executiveFilter) continue;
+    if (query && !t.user_name.toLowerCase().includes(query)) continue;
 
     // Filter matching invoices for this executive in this FY
     const execInvoices = invoices.filter((inv) => {

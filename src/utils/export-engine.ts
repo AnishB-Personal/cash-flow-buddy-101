@@ -91,6 +91,8 @@ export interface ExportTotals {
   totalTds: number;
   totalSettled: number;
   totalOutstanding: number;
+  recognizedOutstanding: number;
+  unbilledOutstanding: number;
   recordCount: number;
 }
 
@@ -442,6 +444,13 @@ export function calculateExportTotals(rows: readonly ExportRow[]): ExportTotals 
       acc.totalTds += row["TDS Deducted (₹)"];
       acc.totalSettled += row["Total Settled (₹)"];
       acc.totalOutstanding += row["Balance Outstanding (₹)"];
+
+      if (isIssued) {
+        acc.recognizedOutstanding += row["Balance Outstanding (₹)"];
+      } else if (row["Status"] !== "CANCELLED") {
+        acc.unbilledOutstanding += row["Balance Outstanding (₹)"];
+      }
+
       acc.recordCount += 1;
       return acc;
     },
@@ -453,6 +462,8 @@ export function calculateExportTotals(rows: readonly ExportRow[]): ExportTotals 
       totalTds: 0,
       totalSettled: 0,
       totalOutstanding: 0,
+      recognizedOutstanding: 0,
+      unbilledOutstanding: 0,
       recordCount: 0,
     },
   );

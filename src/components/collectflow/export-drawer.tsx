@@ -674,13 +674,17 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                         Balance Outstanding
                       </span>
                       <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>
-                        {formatCurrency(totals.totalOutstanding)}
+                        {formatCurrency(totals.recognizedOutstanding)}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--muted-foreground)", marginTop: 2 }}>
+                        Recognized AR · Unbilled: {formatCurrency(totals.unbilledOutstanding)}
                       </div>
                     </div>
                   </div>
                   <div style={{ fontSize: 12, color: "var(--muted-foreground)", marginTop: 8 }}>
-                    Note: Unbilled purchase orders are excluded from invoiced revenue; cancelled
-                    invoices zero out outstanding receivables.
+                    Note: Recognized AR Outstanding is {formatCurrency(totals.recognizedOutstanding)}.
+                    Unbilled purchase order commitments ({formatCurrency(totals.unbilledOutstanding)}) are
+                    tracked separately and excluded from invoiced revenue; cancelled invoices zero out outstanding receivables.
                   </div>
                 </FormSection>
 
