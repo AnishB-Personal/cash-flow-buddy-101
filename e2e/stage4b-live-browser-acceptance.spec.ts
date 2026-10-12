@@ -171,10 +171,15 @@ test.describe("CollectFlow Phase 4 Stage 4B: Live Browser Authentication Accepta
   test("Check 11: Real 403 response preserves active session without destroying token", async ({ page }) => {
     await page.goto("/login");
 
+    const loginPromise = page.waitForResponse(
+      (res) => res.url().includes("/api/auth/login") && res.request().method() === "POST"
+    );
+
     await page.getByLabel("Username").fill("sandbox_viewer");
     await page.getByLabel("Password").fill("ViewerPass123!");
     await page.getByRole("button", { name: /Sign In/i }).click();
 
+    await loginPromise;
     await expect(page.getByRole("status")).toContainText(/Authenticated as sandbox_viewer/i);
 
     // Attempt admin-only request with viewer token
@@ -209,10 +214,15 @@ test.describe("CollectFlow Phase 4 Stage 4B: Live Browser Authentication Accepta
   test("Check 12: Real 401 response clears authentication state in memory", async ({ page }) => {
     await page.goto("/login");
 
+    const loginPromise = page.waitForResponse(
+      (res) => res.url().includes("/api/auth/login") && res.request().method() === "POST"
+    );
+
     await page.getByLabel("Username").fill("sandbox_admin");
     await page.getByLabel("Password").fill("AdminPass123!");
     await page.getByRole("button", { name: /Sign In/i }).click();
 
+    await loginPromise;
     await expect(page.getByRole("status")).toContainText(/Authenticated as sandbox_admin/i);
 
     // Simulate 401 by calling backend with invalid/expired token
@@ -242,10 +252,15 @@ test.describe("CollectFlow Phase 4 Stage 4B: Live Browser Authentication Accepta
   test("Check 13: Browser page refresh resets in-memory session (memory-only storage architecture)", async ({ page }) => {
     await page.goto("/login");
 
+    const loginPromise = page.waitForResponse(
+      (res) => res.url().includes("/api/auth/login") && res.request().method() === "POST"
+    );
+
     await page.getByLabel("Username").fill("sandbox_admin");
     await page.getByLabel("Password").fill("AdminPass123!");
     await page.getByRole("button", { name: /Sign In/i }).click();
 
+    await loginPromise;
     await expect(page.getByRole("status")).toContainText(/Authenticated as sandbox_admin/i);
 
     // Verify token exists before reload
@@ -270,10 +285,15 @@ test.describe("CollectFlow Phase 4 Stage 4B: Live Browser Authentication Accepta
   test("Check 14: Zero credentials or tokens exposed in localStorage, sessionStorage, or URL parameters", async ({ page }) => {
     await page.goto("/login");
 
+    const loginPromise = page.waitForResponse(
+      (res) => res.url().includes("/api/auth/login") && res.request().method() === "POST"
+    );
+
     await page.getByLabel("Username").fill("sandbox_admin");
     await page.getByLabel("Password").fill("AdminPass123!");
     await page.getByRole("button", { name: /Sign In/i }).click();
 
+    await loginPromise;
     await expect(page.getByRole("status")).toContainText(/Authenticated as sandbox_admin/i);
 
     // Verify storage
