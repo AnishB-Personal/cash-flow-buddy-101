@@ -1,3 +1,4 @@
+import { apiClient } from "@/lib/api-client";
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -119,6 +120,15 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   );
   const { fy, setFy, role, setRole, demo, revision, references, mobile, setMobile } =
     useMockSession();
+  const isLive = apiClient.getMode() === "live";
+  const currentUser = apiClient.getCurrentUser();
+  const activeRole = (isLive && currentUser?.role) ? currentUser.role : role;
+
+  function handleLogout() {
+    apiClient.logout();
+    void routerNavigate({ to: "/login" });
+  }
+
   const [menu, setMenu] = useState(false);
   const [state, setState] = useState("Live");
   const [bucket, setBucket] = useState<string | null>(null);
@@ -278,9 +288,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
       <div className="cf-review-bar">
         <span>
           <i />
-          Mock workspace
+          {isLive ? "Live Sandbox Workspace" : "Mock workspace"}
         </span>
         <div>
+          {!isLive && (
           <FilterChoice
             label="Preview role"
             value={role}
@@ -291,6 +302,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
               setSearchOpen(false);
             }}
           />
+        )}
           <Button
             variant="ghost"
             size="icon"
@@ -388,9 +400,16 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                           ? "System Administrator"
                           : "Aisha Khan"}
                   </strong>
-                  <small>{role.charAt(0).toUpperCase() + role.slice(1)} · mock session</small>
+                  <small>{(activeRole).charAt(0).toUpperCase() + (activeRole).slice(1)} · {isLive ? "Live sandbox" : "mock session"}</small>
                 </div>
               </div>
+              {isLive && (
+                <div style={{ marginTop: "8px" }}>
+                  <Button variant="outline" size="sm" style={{ width: "100%" }} onClick={handleLogout}>
+                    Sign out
+                  </Button>
+                </div>
+              )}
             </footer>
           </aside>
           <div className="cf-main">
@@ -435,7 +454,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
               </div>
             </header>
             <main className="cf-content">
-              <DemoControls container={mobile ? frame : undefined} />
+              {!isLive && <DemoControls container={mobile ? frame : undefined} />}
               <header className="cf-page-heading">
                 <div>
                   <span className="cf-kicker">
