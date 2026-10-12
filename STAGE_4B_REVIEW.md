@@ -95,10 +95,31 @@ Configured in `app/main.py` via `CORSMiddleware`:
 - **Command:** `LD_LIBRARY_PATH=/home/anishb/.local/lib npx playwright test`
 - **Result:** **133 passed, 0 failed (7.2 minutes)**
   - All 131 pre-existing Stage 0–6 Playwright browser tests pass.
-  - New test suite `e2e/stage4b-live-auth.spec.ts` passes:
-    1. Loads `/login` portal cleanly, validates inputs, verifies title/branding and mock mode indicator.
-    2. Enforces mock-mode rejection notice on submission when operating in default mock mode.
+  - Test suite `e2e/stage4b-live-auth.spec.ts` passes (portal load, input validation, mock mode indicator).
   - Full 4-viewport responsiveness preserved: Desktop (1440px), Tablet (768px), Mobile (390px), and Narrow Mobile (320px) with 0 horizontal overflow.
+
+### Stage 4B Focused Live Browser Authentication Acceptance (15 Checks)
+- **Command:** `LD_LIBRARY_PATH=/home/anishb/.local/lib npx playwright test e2e/stage4b-live-browser-acceptance.spec.ts`
+- **Execution Target:** Frontend running on `http://127.0.0.1:3000` (`VITE_API_MODE=live`, `VITE_API_BASE_URL=http://127.0.0.1:8000`) and FastAPI running on `http://127.0.0.1:8000` (`COLLECTFLOW_ENV=integration`, `COLLECTFLOW_DB_PATH=collectflow_sandbox.db`).
+- **Result:** **10/10 test blocks passed (100% of all 15 verification criteria satisfied)**
+
+| Check # | Requirement & Verification Criterion | Result | Evidence / Observed Network & DOM Behavior |
+|---------|--------------------------------------|--------|--------------------------------------------|
+| **Check 1** | Opening `/login` renders actual login form | **PASS** | `Username`, `Password`, and `Sign In` button rendered with Accessible labels; branding and mode indicator active. |
+| **Check 2** | Valid sandbox Admin credentials authenticate successfully | **PASS** | Authenticates `sandbox_admin` against running FastAPI backend; status banner displays `Authenticated as sandbox_admin (admin)`. |
+| **Check 3** | `POST /api/auth/login` returns valid session | **PASS** | HTTP 200 received; payload contains `{"success": true, "token": "<64-hex>", "user": {...}}`. |
+| **Check 4** | `GET /api/auth/me` identifies authenticated user | **PASS** | HTTP 200 received; returns `{"authenticated": true, "user": {"id": 9, "username": "sandbox_admin", "role": "admin"}}`. |
+| **Check 5** | Authenticated navigation works correctly | **PASS** | Client router redirects successfully to `/` with authenticated state in memory. |
+| **Check 6** | Unauthenticated access to protected actions rejects/redirects | **PASS** | Calling `/api/auth/me` without token throws `ApiError(401)` with session cleared. |
+| **Check 7** | Logout revokes backend session and returns to login | **PASS** | `POST /api/auth/logout` called on FastAPI; backend clears session; memory token cleared. |
+| **Check 8** | Reusing a revoked session returns 401 | **PASS** | Calling `GET /api/auth/me` with revoked token returns HTTP 401: `{"detail": "Session expired or invalid token"}`. |
+| **Check 9** | Invalid credentials display appropriate error | **PASS** | HTTP 401 received; DOM renders `Authentication Failed: Invalid username or password` alert banner. |
+| **Check 10** | Admin, Finance, Sales, and Viewer identities represented | **PASS** | All 4 synthetic identities (`sandbox_admin`, `sandbox_finance`, `sandbox_sales`, `sandbox_viewer`) login and report exact roles. |
+| **Check 11** | Real 403 displays access denied without destroying session | **PASS** | Viewer attempting `POST /api/users` receives HTTP 403 `Access forbidden: role 'viewer' lacks required permissions (admin)`; session token retained. |
+| **Check 12** | Real 401 clears authentication state | **PASS** | Sending invalid token causes HTTP 401; memory session token is immediately purged to `null`. |
+| **Check 13** | Browser refresh requires re-authentication (memory-only) | **PASS** | `page.reload()` resets in-memory token from 64-char string to `null`; no session restored. |
+| **Check 14** | Zero credentials or tokens exposed in storage/URLs | **PASS** | Audit confirms `localStorage` and `sessionStorage` have 0 tokens or passwords; URL query has 0 tokens. |
+| **Check 15** | Live mode never silently falls back to mock success | **PASS** | Mode is strictly `live`; bad credentials or missing backend fail with real errors, never falling back to mock fixtures. |
 
 ### Static Build & Type Check
 - **Command:** `npm run build`
