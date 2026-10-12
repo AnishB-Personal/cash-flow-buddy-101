@@ -382,23 +382,27 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
             <footer>
               <div className="cf-user">
                 <span className="cf-avatar">
-                  {role === "sales"
-                    ? "NR"
-                    : role === "viewer"
-                      ? "KR"
-                      : role === "admin"
-                        ? "SA"
-                        : "AK"}
+                  {isLive
+                    ? (currentUser ? (currentUser.username.slice(0, 2).toUpperCase()) : "—")
+                    : (role === "sales"
+                      ? "NR"
+                      : role === "viewer"
+                        ? "KR"
+                        : role === "admin"
+                          ? "SA"
+                          : "AK")}
                 </span>
                 <div>
                   <strong>
-                    {role === "sales"
-                      ? "Neha Rao"
-                      : role === "viewer"
-                        ? "Kavita Rao"
-                        : role === "admin"
-                          ? "System Administrator"
-                          : "Aisha Khan"}
+                    {isLive
+                      ? (currentUser?.full_name || currentUser?.username || "Authenticated User")
+                      : (role === "sales"
+                        ? "Neha Rao"
+                        : role === "viewer"
+                          ? "Kavita Rao"
+                          : role === "admin"
+                            ? "System Administrator"
+                            : "Aisha Khan")}
                   </strong>
                   <small>{(activeRole).charAt(0).toUpperCase() + (activeRole).slice(1)} · {isLive ? "Live sandbox" : "mock session"}</small>
                 </div>
@@ -494,7 +498,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                     options={references.years.map((year) => year.code)}
                     onChange={setFy}
                   />
-                  {page === "Orders" && canWrite(role) && (
+                  {page === "Orders" && canWrite(role) && !isLive && (
                     <Button onClick={startCreateOrder}>
                       <Plus size={17} />
                       New Order
@@ -502,6 +506,24 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                   )}
                 </div>
               </header>
+              {isLive && page !== "Customers" && page !== "Settings" && (
+                <div style={{
+                  padding: "10px 16px",
+                  margin: "0 0 16px 0",
+                  backgroundColor: "#fef3c7",
+                  border: "1px solid #f59e0b",
+                  borderRadius: "8px",
+                  color: "#92400e",
+                  fontSize: "13px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between"
+                }}>
+                  <span>
+                    <strong>Stage Notice:</strong> {page} screen is not yet integrated with the live backend (scheduled for Stage 4C.3–4C.5). Displaying synthetic demo preview data. Financial mutations are disabled.
+                  </span>
+                </div>
+              )}
               <div className="cf-context">
                 <span>
                   <i />

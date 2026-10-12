@@ -1,7 +1,14 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { apiClient } from "@/lib/api-client";
+import { createFileRoute, redirect } from '@tanstack/react-router';
 import { Workspace } from '@/components/collectflow/workspace';
 
 export const Route = createFileRoute('/users')({
+  ssr: false,
+  beforeLoad: () => {
+    if (apiClient.getMode() === "live" && !apiClient.getToken()) {
+      throw redirect({ to: "/login" });
+    }
+  },
   head: () => ({
     meta: [
       { title: 'CollectFlow — Users & Roles' },
