@@ -18,33 +18,109 @@ function Workflow({operation,container,close,onSuccess,liveCustomers}: {operatio
  const {role,references,confirmReference,revision,fy}=useMockSession();
  const isLive = apiClient.getMode() === "live";
  const currentUser = apiClient.getCurrentUser();
- const effectiveRole = (isLive && currentUser?.role) ? currentUser.role : role;
+ const effectiveRole = isLive ? (currentUser?.role ?? "viewer") : role;
  const [input,setInput]=useState(operation.values),[errors,setErrors]=useState<Record<string,string>>({}),[error,setError]=useState(''),[step,setStep]=useState<'form'|'review'|'confirm'|'result'>('form'),[review,setReview]=useState<ReferenceReview|null>(null),[pending,setPending]=useState(false),[discard,setDiscard]=useState(false),[dirty,setDirty]=useState(false);
  const submitting=useRef(false),origin=useRef({revision,fy,role});
  const trigger=useRef<HTMLElement|null>(typeof document==='undefined'?null:document.activeElement as HTMLElement);
- const allowed=referencePermitted(effectiveRole,operation.action);
+ const allowed=isLive ? (effectiveRole === 'admin' || effectiveRole === 'finance' || (operation.action === 'customer-create' && effectiveRole === 'sales')) : referencePermitted(effectiveRole,operation.action);
  function requestClose(){if(pending)return;if(dirty&&step!=='result')setDiscard(true);else close();}
  function prepare(){
    const parsed=referenceSchema(operation.action).safeParse(input);
    if(!parsed.success){setErrors(Object.fromEntries(parsed.error.issues.map(issue=>[String(issue.path[0]),issue.message])));return;}
    setErrors({});
    try{
-     if (isLive && operation.action.startsWith('customer-')) {
-       const currentCustomer = liveCustomers?.find(c => String(c.id) === operation.target);
+     if (isLive) {
        const dataObj = parsed.data as Record<string, string>;
-       const diffInput: ReferenceInput = (operation.action === 'customer-create' ? dataObj : {
-         ...(currentCustomer ? customerForm(currentCustomer) : {}),
-         ...dataObj,
-       }) as ReferenceInput;
+       if (operation.action.startsWith('customer-')) {
+         const currentCustomer = liveCustomers?.find(c => String(c.id) === operation.target);
+         const diffInput: ReferenceInput = (operation.action === 'customer-create' ? dataObj : {
+           ...(currentCustomer ? customerForm(currentCustomer) : {}),
+           ...dataObj,
+         }) as ReferenceInput;
+         setReview({
+           action: operation.action,
+           target: operation.target,
+           input: diffInput,
+           message: operation.action === 'customer-create' ? `Create customer ${diffInput['billing_name'] || ''}` : operation.action === 'customer-edit' ? `Update customer ${currentCustomer?.billing_name || operation.target}` : `Delete customer ${currentCustomer?.billing_name || operation.target}`,
+           supported: true,
+           context: 'live',
+           before: references,
+           after: references,
+         });
+         setStep('review');
+         setError('');
+         return;
+       }
+       if (operation.action === 'fy-create') {
+         setReview({
+           action: operation.action,
+           target: '',
+           input: dataObj,
+           message: `Create financial year ${dataObj['code'] || ''}`,
+           supported: true,
+           context: 'live',
+           before: references,
+           after: references,
+         });
+         setStep('review');
+         setError('');
+         return;
+       }
+       if (operation.action === 'fy-delete') {
+         setReview({
+           action: operation.action,
+           target: operation.target,
+           input: {},
+           message: `Delete financial year ${operation.target}`,
+           supported: true,
+           context: 'live',
+           before: references,
+           after: references,
+         });
+         setStep('review');
+         setError('');
+         return;
+       }
+       if (operation.action === 'gst-create') {
+         setReview({
+           action: operation.action,
+           target: '',
+           input: dataObj,
+           message: `Create GST rate ${dataObj['name'] || ''}`,
+           supported: true,
+           context: 'live',
+           before: references,
+           after: references,
+         });
+         setStep('review');
+         setError('');
+         return;
+       }
+       if (operation.action === 'tds-create') {
+         setReview({
+           action: operation.action,
+           target: '',
+           input: dataObj,
+           message: `Create TDS section ${dataObj['section_code'] || ''}`,
+           supported: true,
+           context: 'live',
+           before: references,
+           after: references,
+         });
+         setStep('review');
+         setError('');
+         return;
+       }
+       // Unsupported actions in live mode
        setReview({
          action: operation.action,
          target: operation.target,
-         input: diffInput,
-         message: operation.action === 'customer-create' ? `Create customer ${diffInput['billing_name'] || ''}` : operation.action === 'customer-edit' ? `Update customer ${currentCustomer?.billing_name || operation.target}` : `Delete customer ${currentCustomer?.billing_name || operation.target}`,
-         supported: true,
+         input: dataObj,
+         message: 'Stage Notice: This action is not supported by the live backend in Stage 4C.2. Statutory rate deactivation and financial year seeding are deferred.',
+         supported: false,
          context: 'live',
          before: references,
-         after: references,
+         after: null,
        });
        setStep('review');
        setError('');
@@ -62,8 +138,7 @@ function Workflow({operation,container,close,onSuccess,liveCustomers}: {operatio
    setPending(true);
    setError('');
    try {
-     if (isLive && operation.action.startsWith('customer-')) {
-       // Execute real backend API mutation
+     if (isLive) {
        if (operation.action === 'customer-create') {
          await apiClient.createCustomer({
            billing_name: input['billing_name'] || '',
@@ -98,6 +173,29 @@ function Workflow({operation,container,close,onSuccess,liveCustomers}: {operatio
        } else if (operation.action === 'customer-delete') {
          const cid = Number(operation.target);
          await apiClient.deleteCustomer(cid);
+       } else if (operation.action === 'fy-create') {
+         await apiClient.createFinancialYear({
+           code: input['code'] || '',
+           start_date: input['start_date'] || undefined,
+           end_date: input['end_date'] || undefined,
+         });
+       } else if (operation.action === 'fy-delete') {
+         await apiClient.deleteFinancialYear(operation.target);
+       } else if (operation.action === 'gst-create') {
+         await apiClient.createGstRate({
+           name: input['name'] || '',
+           rate: Number(input['percent'] || 0),
+           tax_type: input['tax_type'] || 'GST',
+           is_default: input['is_default'] === '1',
+         });
+       } else if (operation.action === 'tds-create') {
+         await apiClient.createTdsRate({
+           section_code: input['section_code'] || '',
+           rate: Number(input['percent'] || 0),
+           description: input['description'] || undefined,
+         });
+       } else {
+         throw new Error('This action is not supported by the live backend in Stage 4C.2.');
        }
        onSuccess?.();
      } else {
@@ -188,11 +286,54 @@ export function CustomerDirectory({container,empty=false,openRecord}: {container
  return <section className="cf-reference-section"><header className="cf-section-header"><h2>Customer directory <span className="cf-count">{rows.length}</span></h2>{referencePermitted(effectiveRole,'customer-create')&&<Button onClick={()=>act('customer-create')}><Plus size={17}/>New customer</Button>}</header>{liveError&&<div className="cf-field-error" role="alert">{liveError}</div>}{liveLoading&&<p className="cf-muted" role="status">Loading live customer master…</p>}<div className="cf-reference-tools"><div className="cf-table-search"><Search size={18}/><Input aria-label="Search customers" maxLength={200} value={query} placeholder="Name, GSTIN or contact" onChange={e=>{setQuery(e.target.value);setPage(1);}}/></div><FilterChoice label="Customer state" value={region} options={['All states',...Array.from(new Set(dataSource.map(row=>row.state||'Not supplied')))]} onChange={value=>{setRegion(value);setPage(1);}}/><FilterChoice label="Customer sort" value={sort} options={['Name A–Z','Name Z–A']} onChange={setSort}/></div>{!rows.length?<EmptyState onReset={()=>{setQuery('');setRegion('All states');}}/>:<><div className="cf-table-container"><table className="cf-table cf-customer-table"><thead><tr><th>Customer / GSTIN</th><th>Contact</th><th>State</th><th>Actions</th></tr></thead><tbody>{visible.map(row=><tr key={row.id}><td><Button variant="link" onClick={()=>setDetail(row.id)}>{row.billing_name}</Button><small>{row.gst_number||'No GSTIN supplied'}</small></td><td>{row.contact_person||'Not supplied'}<small>{row.email||'No email supplied'}</small><small>{row.phone_1||'No phone supplied'}</small></td><td>{row.state||'Not supplied'}</td><td>{actions(row)}</td></tr>)}</tbody></table></div><div className="cf-mobile-cards">{visible.map(row=><article className="cf-record-card" key={row.id}><h3>{row.billing_name}</h3><dl><div><dt>GSTIN</dt><dd>{row.gst_number||'Not supplied'}</dd></div><div><dt>State</dt><dd>{row.state||'Not supplied'}</dd></div><div><dt>Contact</dt><dd>{row.contact_person||'Not supplied'}</dd></div><div><dt>Email</dt><dd>{row.email||'Not supplied'}</dd></div></dl><footer>{actions(row)}</footer></article>)}</div><footer className="cf-table-footer"><span>{rows.length} customers · page {current} of {pages}</span><div><FilterChoice label="Customers per page" value={size} options={['1','10','25']} onChange={value=>{setSize(value);setPage(1);}}/><Button variant="ghost" size="icon" aria-label="Previous customer page" disabled={current===1} onClick={()=>setPage(current-1)}><ChevronLeft size={16}/></Button><Button variant="ghost" size="icon" aria-label="Next customer page" disabled={current===pages} onClick={()=>setPage(current+1)}><ChevronRight size={16}/></Button></div></footer></>}{operation&&<Workflow operation={operation} container={container} close={()=>setOperation(null)} onSuccess={fetchLiveCustomers} liveCustomers={liveCustomers}/>}{selected&&<CustomerDetails customer={selected} container={container} close={()=>setDetail(null)} openRecord={openRecord}/>}</section>;
 }
 export function FinancialReferences({container,empty=false}: {container?:HTMLElement|null|undefined;empty?:boolean}) {
- const {references,role}=useMockSession();const [tab,setTab]=useState('Financial years'),[query,setQuery]=useState(''),[status,setStatus]=useState('All rates'),[operation,setOperation]=useState<Operation|null>(null);
- const writable=role==='admin'||role==='finance';
+ const {references,role}=useMockSession();
+ const isLive = apiClient.getMode() === "live";
+ const currentUser = apiClient.getCurrentUser();
+ const effectiveRole = isLive ? (currentUser?.role ?? "viewer") : role;
+ const writable = effectiveRole === 'admin' || effectiveRole === 'finance';
+ const [tab,setTab]=useState('Financial years'),[query,setQuery]=useState(''),[status,setStatus]=useState('All rates'),[operation,setOperation]=useState<Operation|null>(null);
+ const [liveFys, setLiveFys] = useState<{ code: string; start_date?: string; end_date?: string; is_active: boolean }[]>([]);
+ const [liveGst, setLiveGst] = useState<{ id: number; name: string; rate: number; cgst_rate?: number; sgst_rate?: number; igst_rate?: number; is_default?: boolean; is_active: boolean }[]>([]);
+ const [liveTds, setLiveTds] = useState<{ id: number; section_code: string; description?: string; rate: number; is_active: boolean }[]>([]);
+ const [liveLoading, setLiveLoading] = useState(false);
+ const [liveError, setLiveError] = useState<string | null>(null);
+
+ const fetchLiveReferences = () => {
+   if (!isLive) return;
+   setLiveLoading(true);
+   setLiveError(null);
+   Promise.all([
+     apiClient.getFinancialYears(),
+     apiClient.getTaxes(),
+   ])
+     .then(([fys, taxes]) => {
+       setLiveFys(fys || []);
+       if (taxes) {
+         setLiveGst(taxes.gst_rates || []);
+         setLiveTds(taxes.tds_rates || []);
+       }
+       setLiveLoading(false);
+     })
+     .catch(err => {
+       setLiveError(err.message || "Failed to load statutory references");
+       setLiveLoading(false);
+     });
+ };
+
+ useEffect(() => {
+   fetchLiveReferences();
+ }, [isLive]);
+
  function act(action:ReferenceAction,target='',label:string,example:ReferenceInput={}){setOperation({action,target,label,values:Object.fromEntries(Object.keys(example).map(key=>[key,key==='tax_type'?'GST':key==='is_default'?'0':''])),example});}
- const years=empty?[]:references.years.filter(row=>row.code.toLowerCase().includes(query.toLowerCase())).sort((a,b)=>b.code.localeCompare(a.code));
- const rates=empty?[]:(tab==='GST'?references.gst.map(row=>({id:row.id,name:row.name,description:row.tax_type,rate:row.rate,is_active:row.is_active,default:row.is_default===1})):references.tds.map(row=>({id:row.id,name:row.section_code,description:row.description,rate:row.rate,is_active:row.is_active,default:false}))).filter(row=>`${row.name} ${row.description}`.toLowerCase().includes(query.toLowerCase())&&(status==='All rates'||(status==='Active'?row.is_active===1:row.is_active===0)));
- return <section className="cf-reference-section"><div className="cf-segments cf-reference-tabs" role="group" aria-label="Financial reference tabs">{['Financial years','GST','TDS'].map(value=><Button key={value} variant="ghost" aria-pressed={tab===value} onClick={()=>{setTab(value);setQuery('');}}>{value}</Button>)}</div><header className="cf-section-header"><h2>{tab}</h2>{writable&&<div className="cf-reference-actions">{tab==='Financial years'&&<Button variant="outline" onClick={()=>act('fy-seed','','Seed standard years')}><RotateCcw size={16}/>Seed years</Button>}<Button onClick={()=>act(tab==='Financial years'?'fy-create':tab==='GST'?'gst-create':'tds-create','',tab==='Financial years'?'Add financial year':`Add ${tab} rate`,tab==='Financial years'?fyExample:tab==='GST'?gstExample:tdsExample)}><Plus size={16}/>Add {tab==='Financial years'?'year':'rate'}</Button></div>}</header><div className="cf-reference-tools"><div className="cf-table-search"><Search size={17}/><Input aria-label="Search references" maxLength={200} value={query} onChange={e=>setQuery(e.target.value)} placeholder={`Search ${tab.toLowerCase()}`}/></div>{tab!=='Financial years'&&<FilterChoice label="Rate status" value={status} options={['All rates','Active','Inactive']} onChange={setStatus}/>}</div><p className="cf-muted">{tab==='Financial years'?'Financial-year editing is unavailable in the source API. Deletion requires no linked documents.':'Rates can be added or deactivated, not edited or reactivated. Inactive entries are retained in this demo only; the source list returns active rates.'}</p>
- {tab==='Financial years'?(!years.length?<EmptyState/>:<div className="cf-reference-list">{years.map(year=><div className="cf-reference-row" key={year.code}><div><strong>{year.code}</strong><small>{dateLabel(year.start_date)} – {dateLabel(year.end_date)}</small></div><span className="cf-status">{year.is_active?'Active':'Inactive'}</span>{writable&&<Button variant="ghost" size="icon" title="Delete unused financial year" aria-label={`Delete ${year.code}`} onClick={()=>act('fy-delete',year.code,'Delete financial year')}><Trash2 size={16}/></Button>}</div>)}</div>):(!rates.length?<EmptyState/>:<div className="cf-reference-list">{rates.map(rate=><div className="cf-reference-row" key={rate.id}><div><strong>{rate.name}</strong><small>{rate.description}{rate.default?' · Default':''}</small></div><strong className="cf-number">{Number((rate.rate*100).toFixed(3))}%</strong><span className={`cf-status ${rate.is_active?'paid':''}`}>{rate.is_active?'Active':'Inactive'}</span>{writable&&<Button variant="ghost" size="icon" disabled={!rate.is_active} title="Deactivate rate" aria-label={`Deactivate ${rate.name}`} onClick={()=>act(tab==='GST'?'gst-deactivate':'tds-deactivate',String(rate.id),`Deactivate ${tab} rate`)}><Trash2 size={16}/></Button>}</div>)}</div>)}{operation&&<Workflow operation={operation} container={container} close={()=>setOperation(null)}/>}</section>;
+ const years=empty?[]:(isLive
+   ? liveFys.filter(row=>row.code.toLowerCase().includes(query.toLowerCase())).sort((a,b)=>b.code.localeCompare(a.code)).map(row=>({code:row.code,start_date:row.start_date||'',end_date:row.end_date||'',is_active:row.is_active?1:0}))
+   : references.years.filter(row=>row.code.toLowerCase().includes(query.toLowerCase())).sort((a,b)=>b.code.localeCompare(a.code)));
+ const rates=empty?[]:(isLive
+   ? (tab==='GST'
+       ? liveGst.map(row=>({id:row.id,name:row.name,description:'GST',rate:row.rate,is_active:row.is_active?1:0,default:Boolean(row.is_default)}))
+       : liveTds.map(row=>({id:row.id,name:row.section_code,description:row.description||'',rate:row.rate,is_active:row.is_active?1:0,default:false}))
+     ).filter(row=>`${row.name} ${row.description}`.toLowerCase().includes(query.toLowerCase())&&(status==='All rates'||(status==='Active'?row.is_active===1:row.is_active===0)))
+   : (tab==='GST'?references.gst.map(row=>({id:row.id,name:row.name,description:row.tax_type,rate:row.rate,is_active:row.is_active,default:row.is_default===1})):references.tds.map(row=>({id:row.id,name:row.section_code,description:row.description,rate:row.rate,is_active:row.is_active,default:false}))).filter(row=>`${row.name} ${row.description}`.toLowerCase().includes(query.toLowerCase())&&(status==='All rates'||(status==='Active'?row.is_active===1:row.is_active===0))));
+ return <section className="cf-reference-section"><div className="cf-segments cf-reference-tabs" role="group" aria-label="Financial reference tabs">{['Financial years','GST','TDS'].map(value=><Button key={value} variant="ghost" aria-pressed={tab===value} onClick={()=>{setTab(value);setQuery('');}}>{value}</Button>)}</div><header className="cf-section-header"><h2>{tab}</h2>{writable&&<div className="cf-reference-actions">{tab==='Financial years'&&(!isLive ? <Button variant="outline" onClick={()=>act('fy-seed','','Seed standard years')}><RotateCcw size={16}/>Seed years</Button> : <Button variant="outline" disabled title="Financial year seeding is not supported in live mode"><RotateCcw size={16}/>Seed years</Button>)}<Button onClick={()=>act(tab==='Financial years'?'fy-create':tab==='GST'?'gst-create':'tds-create','',tab==='Financial years'?'Add financial year':`Add ${tab} rate`,tab==='Financial years'?fyExample:tab==='GST'?gstExample:tdsExample)}><Plus size={16}/>Add {tab==='Financial years'?'year':'rate'}</Button></div>}</header>{liveError&&<div className="cf-field-error" role="alert">{liveError}</div>}{liveLoading&&<p className="cf-muted" role="status">Loading live statutory references…</p>}<div className="cf-reference-tools"><div className="cf-table-search"><Search size={17}/><Input aria-label="Search references" maxLength={200} value={query} onChange={e=>setQuery(e.target.value)} placeholder={`Search ${tab.toLowerCase()}`}/></div>{tab!=='Financial years'&&<FilterChoice label="Rate status" value={status} options={['All rates','Active','Inactive']} onChange={setStatus}/>}</div><p className="cf-muted">{tab==='Financial years'?'Financial-year editing is unavailable in the source API. Deletion requires no linked documents.':isLive?'Rates can be added in live mode. Rate deactivation and modification are scheduled for later stages.':'Rates can be added or deactivated, not edited or reactivated. Inactive entries are retained in this demo only; the source list returns active rates.'}</p>
+ {tab==='Financial years'?(!years.length?<EmptyState/>:<div className="cf-reference-list">{years.map(year=><div className="cf-reference-row" key={year.code}><div><strong>{year.code}</strong><small>{dateLabel(year.start_date)} – {dateLabel(year.end_date)}</small></div><span className="cf-status">{year.is_active?'Active':'Inactive'}</span>{writable&&<Button variant="ghost" size="icon" title="Delete unused financial year" aria-label={`Delete ${year.code}`} onClick={()=>act('fy-delete',year.code,'Delete financial year')}><Trash2 size={16}/></Button>}</div>)}</div>):(!rates.length?<EmptyState/>:<div className="cf-reference-list">{rates.map(rate=><div className="cf-reference-row" key={rate.id}><div><strong>{rate.name}</strong><small>{rate.description}{rate.default?' · Default':''}</small></div><strong className="cf-number">{Number((rate.rate*100).toFixed(3))}%</strong><span className={`cf-status ${rate.is_active?'paid':''}`}>{rate.is_active?'Active':'Inactive'}</span>{writable&&(!isLive ? <Button variant="ghost" size="icon" disabled={!rate.is_active} title="Deactivate rate" aria-label={`Deactivate ${rate.name}`} onClick={()=>act(tab==='GST'?'gst-deactivate':'tds-deactivate',String(rate.id),`Deactivate ${tab} rate`)}><Trash2 size={16}/></Button> : <Button variant="ghost" size="icon" disabled title="Rate deactivation is not supported in live mode" aria-label={`Deactivate ${rate.name}`}><Trash2 size={16}/></Button>)}</div>)}</div>)}{operation&&<Workflow operation={operation} container={container} close={()=>setOperation(null)} onSuccess={fetchLiveReferences}/>}</section>;
 }

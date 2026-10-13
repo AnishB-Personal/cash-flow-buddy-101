@@ -125,4 +125,166 @@ describe("ApiClient Core & Authentication (Stage 4B)", () => {
       expect(err.message).toContain("Network failure: Unable to reach backend");
     }
   });
+
+  it("delayed 401 does not clear a newer session", async () => {
+    apiClient.configure({ mode: "live", baseUrl: "http://127.0.0.1:8000" });
+    apiClient.setToken("token-user-1", { id: 1, username: "user1", role: "sales", full_name: "User One" });
+
+    let unauthCallbackCalled = false;
+    apiClient.onUnauthorized(() => {
+      unauthCallbackCalled = true;
+    });
+
+    let resolveDelayed401: (val: any) => void;
+    const delayed401Promise = new Promise((resolve) => {
+      resolveDelayed401 = resolve;
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => delayed401Promise));
+
+    // Request 1 starts with token-user-1
+    const req1Promise = apiClient.request("/api/customers");
+
+    // Before req1 finishes, User 2 logs in
+    apiClient.setToken("token-user-2", { id: 2, username: "user2", role: "admin", full_name: "User Two" });
+
+    // Now req1 finishes with 401
+    resolveDelayed401!({
+      ok: false,
+      status: 401,
+      json: async () => ({ detail: "Token 1 expired" }),
+    });
+
+    await expect(req1Promise).rejects.toThrow(ApiError);
+
+    // Stale 401 must NOT clear the new session
+    expect(apiClient.getToken()).toBe("token-user-2");
+    expect(apiClient.getCurrentUser()?.username).toBe("user2");
+    expect(unauthCallbackCalled).toBe(false);
+  });
+
+  it("delayed /auth/me does not overwrite another user's identity upon account switching", async () => {
+    apiClient.configure({ mode: "live", baseUrl: "http://127.0.0.1:8000" });
+    const userAisha = { id: 1, username: "aisha", role: "finance" as const, full_name: "Aisha Khan" };
+    const userBob = { id: 2, username: "bob", role: "admin" as const, full_name: "Bob Admin" };
+
+    apiClient.setToken("token-aisha", userAisha);
+
+    let resolveMe: (val: any) => void;
+    const delayedMePromise = new Promise((resolve) => {
+      resolveMe = resolve;
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => delayedMePromise));
+
+    // Aisha initiates fetchCurrentUser
+    const aishaFetchPromise = apiClient.fetchCurrentUser();
+
+    // User switches to Bob before Aisha's response returns
+    apiClient.setToken("token-bob", userBob);
+
+    // Now Aisha's /auth/me resolves
+    resolveMe!({
+      ok: true,
+      status: 200,
+      json: async () => ({ authenticated: true, user: userAisha }),
+    });
+
+    await aishaFetchPromise.catch(() => {});
+
+    // Must NOT have overwritten Bob's identity with Aisha
+    expect(apiClient.getCurrentUser()?.username).toBe("bob");
+    expect(apiClient.getToken()).toBe("token-bob");
+  });
+
+  it("logout immediately invalidates local authentication without allowing late responses to restore it", async () => {
+    apiClient.configure({ mode: "live", baseUrl: "http://127.0.0.1:8000" });
+    const userAisha = { id: 1, username: "aisha", role: "finance" as const, full_name: "Aisha Khan" };
+    apiClient.setToken("token-aisha", userAisha);
+
+    let resolveLateFetch: (val: any) => void;
+    const delayedFetchPromise = new Promise((resolve) => {
+      resolveLateFetch = resolve;
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/auth/logout")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        });
+      }
+      return delayedFetchPromise;
+    }));
+
+    // In-flight fetchCurrentUser
+    const mePromise = apiClient.fetchCurrentUser();
+
+    // User calls logout
+    const logoutPromise = apiClient.logout();
+
+    // Logout must immediately invalidate local auth synchronously
+    expect(apiClient.getToken()).toBeNull();
+    expect(apiClient.getCurrentUser()).toBeNull();
+
+    await logoutPromise;
+
+    // Now late /me response arrives
+    resolveLateFetch!({
+      ok: true,
+      status: 200,
+      json: async () => ({ authenticated: true, user: userAisha }),
+    });
+
+    await mePromise.catch(() => {});
+
+    // Must remain logged out and null
+    expect(apiClient.getToken()).toBeNull();
+    expect(apiClient.getCurrentUser()).toBeNull();
+  });
+
+  it("logout and login overlap preserves the newly established session", async () => {
+    apiClient.configure({ mode: "live", baseUrl: "http://127.0.0.1:8000" });
+    const user1 = { id: 1, username: "user1", role: "sales" as const, full_name: "User 1" };
+    const user2 = { id: 2, username: "user2", role: "admin" as const, full_name: "User 2" };
+
+    apiClient.setToken("token-1", user1);
+
+    let resolveLogout: (val: any) => void;
+    const delayedLogoutPromise = new Promise((resolve) => {
+      resolveLogout = resolve;
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/auth/logout")) {
+        return delayedLogoutPromise;
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      });
+    }));
+
+    // Start logout of user 1
+    const logoutPromise = apiClient.logout();
+
+    // While logout backend call is pending, User 2 logs in
+    apiClient.setToken("token-2", user2);
+
+    // Backend logout now resolves
+    resolveLogout!({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, message: "Logged out" }),
+    });
+
+    await logoutPromise;
+
+    // The late completion of logout must NOT wipe User 2's session
+    expect(apiClient.getToken()).toBe("token-2");
+    expect(apiClient.getCurrentUser()?.username).toBe("user2");
+  });
 });
+

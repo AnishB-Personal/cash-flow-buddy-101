@@ -183,6 +183,9 @@ class ApiClient {
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
     const combinedSignal = options.signal || controller.signal;
 
+    const requestGeneration = this.sessionGeneration;
+    const requestToken = this.inMemoryToken;
+
     const fetchOptions: RequestInit = {
       method: options.method || "GET",
       headers,
@@ -199,7 +202,9 @@ class ApiClient {
 
       // Handle HTTP 401 Unauthorized
       if (response.status === 401) {
-        this.clearSession();
+        if (this.sessionGeneration === requestGeneration && this.inMemoryToken === requestToken) {
+          this.clearSession();
+        }
         let errorMsg = "Unauthorized: Session has expired or credentials are invalid.";
         try {
           const errPayload = await response.json();
@@ -274,22 +279,41 @@ class ApiClient {
   }
 
   public async fetchCurrentUser(): Promise<UserProfile> {
+    const requestGeneration = this.sessionGeneration;
+    const requestToken = this.inMemoryToken;
     const res = await this.request<{ authenticated: boolean; user: UserProfile }>("/api/auth/me", {
       method: "GET",
     });
-    this.inMemoryUser = res.user;
-    return res.user;
+    if (this.sessionGeneration === requestGeneration && this.inMemoryToken === requestToken && this.inMemoryToken !== null) {
+      this.inMemoryUser = res.user;
+      return res.user;
+    }
+    if (this.inMemoryUser) {
+      return this.inMemoryUser;
+    }
+    throw new ApiError(401, "Session invalidated during user verification.");
   }
 
   public async logout(): Promise<void> {
-    try {
-      if (this.inMemoryToken) {
-        await this.request<{ success: boolean; message: string }>("/api/auth/logout", {
+    const tokenToRevoke = this.inMemoryToken;
+    // Invalidate local authentication immediately
+    this.inMemoryToken = null;
+    this.inMemoryUser = null;
+    this.sessionGeneration++;
+
+    if (tokenToRevoke && this.mode === "live" && this.baseUrl) {
+      try {
+        const headers: Record<string, string> = {
+          "Accept": "application/json",
+          "Authorization": `Bearer ${tokenToRevoke}`,
+        };
+        await fetch(`${this.baseUrl}/api/auth/logout`, {
           method: "POST",
+          headers,
         });
+      } catch {
+        // Silently handle remote network errors on logout
       }
-    } finally {
-      this.clearSession();
     }
   }
 
@@ -332,8 +356,48 @@ class ApiClient {
     return await this.request<any[]>("/api/settings/financial-years");
   }
 
+  public async createFinancialYear(data: {
+    code: string;
+    start_date?: string | undefined;
+    end_date?: string | undefined;
+  }): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>("/api/settings/financial-years", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  public async deleteFinancialYear(code: string): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>(`/api/settings/financial-years/${encodeURIComponent(code)}`, {
+      method: "DELETE",
+    });
+  }
+
   public async getTaxes(): Promise<any> {
     return await this.request<any>("/api/settings/taxes");
+  }
+
+  public async createGstRate(data: {
+    name: string;
+    rate: number;
+    tax_type?: string | undefined;
+    is_default?: boolean | undefined;
+  }): Promise<{ success: boolean; id: number; message: string }> {
+    return await this.request<{ success: boolean; id: number; message: string }>("/api/settings/taxes/gst", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  public async createTdsRate(data: {
+    section_code: string;
+    rate: number;
+    description?: string | undefined;
+  }): Promise<{ success: boolean; id: number; message: string }> {
+    return await this.request<{ success: boolean; id: number; message: string }>("/api/settings/taxes/tds", {
+      method: "POST",
+      body: data,
+    });
   }
 
   // User Management Operations (Admin RBAC)
