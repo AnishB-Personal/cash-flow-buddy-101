@@ -286,23 +286,23 @@ class ApiClient {
   }
 
   // Customer Master Operations
-  public async getCustomers(search?: string): Promise<any[]> {
+  public async getCustomers(search?: string): Promise<CustomerDTO[]> {
     const query = search ? `?search=${encodeURIComponent(search)}` : "";
-    return await this.request<any[]>(`/api/customers${query}`);
+    return await this.request<CustomerDTO[]>(`/api/customers${query}`);
   }
 
-  public async getCustomer(id: number): Promise<any> {
-    return await this.request<any>(`/api/customers/${id}`);
+  public async getCustomer(id: number): Promise<CustomerDTO> {
+    return await this.request<CustomerDTO>(`/api/customers/${id}`);
   }
 
-  public async createCustomer(data: any): Promise<{ success: boolean; id: number; message: string }> {
+  public async createCustomer(data: CustomerCreateDTO): Promise<{ success: boolean; id: number; message: string }> {
     return await this.request<{ success: boolean; id: number; message: string }>("/api/customers", {
       method: "POST",
       body: data,
     });
   }
 
-  public async updateCustomer(id: number, data: any): Promise<{ success: boolean; message: string }> {
+  public async updateCustomer(id: number, data: CustomerUpdateDTO): Promise<{ success: boolean; message: string }> {
     return await this.request<{ success: boolean; message: string }>(`/api/customers/${id}`, {
       method: "PUT",
       body: data,
@@ -327,6 +327,62 @@ class ApiClient {
   public async getTaxes(): Promise<any> {
     return await this.request<any>("/api/settings/taxes");
   }
+}
+
+export interface CustomerDTO {
+  id: number;
+  billing_name: string;
+  billing_address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  pin_code?: string | null;
+  gst_number?: string | null;
+  contact_person?: string | null;
+  designation?: string | null;
+  email?: string | null;
+  phone_1?: string | null;
+  phone_2?: string | null;
+  is_active: boolean;
+  total_orders?: number;
+  unbilled_orders_value?: string;
+  total_billed?: string;
+  total_cash?: string;
+  total_tds?: string;
+  total_settled?: string;
+  total_paid?: string;
+  total_outstanding?: string;
+}
+
+export interface CustomerCreateDTO {
+  billing_name: string;
+  billing_address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  pin_code?: string;
+  gst_number?: string;
+  contact_person?: string;
+  designation?: string;
+  email?: string;
+  phone_1?: string;
+  phone_2?: string;
+}
+
+export interface CustomerUpdateDTO {
+  billing_name?: string;
+  billing_address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  pin_code?: string;
+  gst_number?: string;
+  contact_person?: string;
+  designation?: string;
+  email?: string;
+  phone_1?: string;
+  phone_2?: string;
+  is_active?: boolean;
 }
 
 export const apiClient = new ApiClient();

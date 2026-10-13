@@ -212,20 +212,45 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     setRecord(row);
     setSearchOpen(false);
   }
+  useEffect(() => {
+    if (isLive) {
+      if (!apiClient.getToken()) {
+        void routerNavigate({ to: "/login" });
+        return;
+      }
+      apiClient.fetchCurrentUser().catch(() => {
+        apiClient.clearSession();
+        void routerNavigate({ to: "/login" });
+      });
+    }
+  }, [isLive, routerNavigate]);
+
   function unavailable(action: string) {
     setNotice(
       `${action} is unavailable — backend integration is not connected. No records have changed.`,
     );
   }
   function startRecordPayment(row: Invoice) {
+    if (isLive) {
+      setNotice("Payment recording and settlements are scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      return;
+    }
     setRecord(null);
     setPaymentInvoice(row);
   }
   function startCancelInvoice(row: Invoice) {
+    if (isLive) {
+      setNotice("Invoice cancellation is scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      return;
+    }
     setRecord(null);
     setCancelInvoice(row);
   }
   function startCreateOrder() {
+    if (isLive) {
+      setNotice("Order management is scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      return;
+    }
     setRecord(null);
     setOrderOp({
       action: "order-create",
@@ -236,6 +261,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     });
   }
   function startEditOrder(row: Invoice) {
+    if (isLive) {
+      setNotice("Order editing is scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      return;
+    }
     setRecord(null);
     setOrderOp({
       action: "order-edit",
@@ -247,6 +276,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     });
   }
   function startConvertOrder(row: Invoice) {
+    if (isLive) {
+      setNotice("Order conversion is scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      return;
+    }
     setRecord(null);
     setOrderOp({
       action: "order-convert",

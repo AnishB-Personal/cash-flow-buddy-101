@@ -48,15 +48,20 @@ export function multiplyMoney(amountStr: string, factor: number | string): strin
   const factorInt = BigInt(fInt + fFrac);
   
   // Multiply in big integer space
-  const rawProduct = p * factorInt;
+  const isNegative = (p < 0n && factorInt > 0n) || (p > 0n && factorInt < 0n);
+  const absP = p < 0n ? -p : p;
+  const absFactor = factorInt < 0n ? -factorInt : factorInt;
+
+  const rawProduct = absP * absFactor;
   const divisor = 10n ** factorDecimals;
-  // Round half up
+  // Round half up (symmetric away from zero)
   const remainder = rawProduct % divisor;
   let quotient = rawProduct / divisor;
   if (remainder * 2n >= divisor) {
     quotient += 1n;
   }
-  return formatPaise(quotient);
+  const signedQuotient = isNegative ? -quotient : quotient;
+  return formatPaise(signedQuotient);
 }
 
 /**
