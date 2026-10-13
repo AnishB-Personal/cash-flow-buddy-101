@@ -180,5 +180,118 @@ describe('H04: LIVE Settings & Statutory Reference Isolation', () => {
       })
     );
   });
+
+  it('converts statutory percentage inputs to unambiguous decimal rates for GST creation', async () => {
+    apiClient.setToken('admin-token', {
+      id: 1,
+      username: 'admin',
+      role: 'admin',
+      full_name: 'Admin User',
+    });
+
+    vi.spyOn(apiClient, 'getFinancialYears').mockResolvedValue([]);
+    vi.spyOn(apiClient, 'getTaxes').mockResolvedValue({ gst_rates: [], tds_rates: [] });
+    const createGstSpy = vi.spyOn(apiClient, 'createGstRate').mockResolvedValue({
+      success: true,
+      id: 999,
+      message: 'Created',
+    });
+
+    const testCases = [
+      { inputPercent: '0.5', expectedRate: 0.005, name: 'Special GST 0.5%' },
+      { inputPercent: '1', expectedRate: 0.01, name: 'Special GST 1%' },
+      { inputPercent: '1.5', expectedRate: 0.015, name: 'Special GST 1.5%' },
+      { inputPercent: '18', expectedRate: 0.18, name: 'Standard GST 18%' },
+    ];
+
+    for (const tc of testCases) {
+      createGstSpy.mockClear();
+
+      const { unmount } = render(
+        <MockSessionProvider>
+          <FinancialReferences />
+        </MockSessionProvider>
+      );
+
+      // Switch to GST tab
+      fireEvent.click(screen.getByRole('button', { name: 'GST' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Add rate' }));
+
+      fireEvent.change(screen.getByLabelText('Rate name'), { target: { value: tc.name } });
+      fireEvent.change(screen.getByLabelText('Rate (%)'), { target: { value: tc.inputPercent } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+      await screen.findByText('Intended reference change');
+      fireEvent.click(screen.getByRole('button', { name: 'Continue to confirmation' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm reference change' }));
+
+      await waitFor(() => {
+        expect(createGstSpy).toHaveBeenCalledWith({
+          name: tc.name,
+          rate: tc.expectedRate,
+          tax_type: 'GST',
+          is_default: false,
+        });
+      });
+
+      unmount();
+    }
+  });
+
+  it('converts statutory percentage inputs to unambiguous decimal rates for TDS creation', async () => {
+    apiClient.setToken('admin-token', {
+      id: 1,
+      username: 'admin',
+      role: 'admin',
+      full_name: 'Admin User',
+    });
+
+    vi.spyOn(apiClient, 'getFinancialYears').mockResolvedValue([]);
+    vi.spyOn(apiClient, 'getTaxes').mockResolvedValue({ gst_rates: [], tds_rates: [] });
+    const createTdsSpy = vi.spyOn(apiClient, 'createTdsRate').mockResolvedValue({
+      success: true,
+      id: 888,
+      message: 'Created',
+    });
+
+    const testCases = [
+      { inputPercent: '0.5', expectedRate: 0.005, code: '194C-HALF' },
+      { inputPercent: '1', expectedRate: 0.01, code: '194C-ONE' },
+      { inputPercent: '1.5', expectedRate: 0.015, code: '194C-ONE-HALF' },
+      { inputPercent: '18', expectedRate: 0.18, code: '194C-EIGHTEEN' },
+    ];
+
+    for (const tc of testCases) {
+      createTdsSpy.mockClear();
+
+      const { unmount } = render(
+        <MockSessionProvider>
+          <FinancialReferences />
+        </MockSessionProvider>
+      );
+
+      // Switch to TDS tab
+      fireEvent.click(screen.getByRole('button', { name: 'TDS' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Add rate' }));
+
+      fireEvent.change(screen.getByLabelText('TDS section'), { target: { value: tc.code } });
+      fireEvent.change(screen.getByLabelText('Rate (%)'), { target: { value: tc.inputPercent } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+      await screen.findByText('Intended reference change');
+      fireEvent.click(screen.getByRole('button', { name: 'Continue to confirmation' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm reference change' }));
+
+      await waitFor(() => {
+        expect(createTdsSpy).toHaveBeenCalledWith({
+          section_code: tc.code,
+          rate: tc.expectedRate,
+          description: undefined,
+        });
+      });
+
+      unmount();
+    }
+  });
 });
 

@@ -278,6 +278,142 @@ test.describe("Stage 4C.2 Independent UAT Defect Correction Verification", () =>
       });
     }
   });
+
+  test("CF4C2-B04: Statutory percentage reference creation converts UI percentages to unambiguous decimal rates and verifies backend readback", async ({ page, request }) => {
+    // 0. Setup: Authenticate via API to prepare admin headers for readback
+    const adminLoginRes = await request.post(`${BACKEND_URL}/api/auth/login`, {
+      data: { username: "sandbox_admin", password: "AdminPass123!" },
+    });
+    expect(adminLoginRes.status()).toBe(200);
+    const adminToken = (await adminLoginRes.json()).token;
+    const adminHeaders = { Authorization: `Bearer ${adminToken}` };
+
+    const suffix = Date.now().toString().slice(-6);
+    const gstNameHalf = `GST Slab 0.5% ${suffix}`;
+    const tdsSectionOne = `TDS-1P-${suffix}`;
+
+    // 1. Authenticate through the LIVE login screen
+    await page.goto(`${FRONTEND_URL}/login`);
+    await page.getByLabel("Username").fill("sandbox_admin");
+    await page.getByLabel("Password").fill("AdminPass123!");
+    await page.getByRole("button", { name: /Sign In/i }).click();
+    await expect(page).toHaveURL(`${FRONTEND_URL}/`);
+
+    // 2. Navigate to Settings
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page).toHaveURL(`${FRONTEND_URL}/settings`);
+
+    // 3. Test GST 0.5% UI Form Workflow -> Expect submitted rate 0.005
+    await page.getByRole("button", { name: "GST" }).click();
+    await page.getByRole("button", { name: "Add rate" }).click();
+    await expect(page.getByRole("heading", { name: /Add GST rate/i })).toBeVisible();
+
+    await page.getByLabel("Rate name").fill(gstNameHalf);
+    await page.getByLabel("Rate (%)").fill("0.5");
+
+    await page.getByRole("button", { name: /Review changes/i }).click();
+    await expect(page.getByText(/Intended reference change/i)).toBeVisible();
+    await page.getByRole("button", { name: /Continue to confirmation/i }).click();
+
+    const gstPostPromise = page.waitForRequest(
+      (req) => req.url().includes("/api/settings/taxes/gst") && req.method() === "POST"
+    );
+    await page.getByRole("button", { name: /Confirm reference change/i }).click();
+
+    const gstReq = await gstPostPromise;
+    const gstPayload = JSON.parse(gstReq.postData() || "{}");
+    // Verify unambiguous decimal rate 0.005 was submitted (not 0.5 or 50)
+    expect(gstPayload.rate).toBe(0.005);
+    expect(gstPayload.name).toBe(gstNameHalf);
+
+    await expect(page.getByText(/Changes successfully committed to live PostgreSQL database/i)).toBeVisible();
+    await page.getByRole("button", { name: /Return to list/i }).click();
+
+    // 4. Test TDS 1% UI Form Workflow -> Expect submitted rate 0.01
+    await page.getByRole("button", { name: "TDS" }).click();
+    await page.getByRole("button", { name: "Add rate" }).click();
+    await expect(page.getByRole("heading", { name: /Add TDS rate/i })).toBeVisible();
+
+    await page.getByLabel("TDS section").fill(tdsSectionOne);
+    await page.getByLabel("Description").fill(`Contractor TDS 1% ${suffix}`);
+    await page.getByLabel("Rate (%)").fill("1");
+
+    await page.getByRole("button", { name: /Review changes/i }).click();
+    await expect(page.getByText(/Intended reference change/i)).toBeVisible();
+    await page.getByRole("button", { name: /Continue to confirmation/i }).click();
+
+    const tdsPostPromise = page.waitForRequest(
+      (req) => req.url().includes("/api/settings/taxes/tds") && req.method() === "POST"
+    );
+    await page.getByRole("button", { name: /Confirm reference change/i }).click();
+
+    const tdsReq = await tdsPostPromise;
+    const tdsPayload = JSON.parse(tdsReq.postData() || "{}");
+    // Verify unambiguous decimal rate 0.01 was submitted (not 1 or 100)
+    expect(tdsPayload.rate).toBe(0.01);
+    expect(tdsPayload.section_code).toBe(tdsSectionOne);
+
+    await expect(page.getByText(/Changes successfully committed to live PostgreSQL database/i)).toBeVisible();
+    await page.getByRole("button", { name: /Return to list/i }).click();
+
+    // 5. Backend Readback Verification for 0.5% and 1%
+    const taxesGetRes = await request.get(`${BACKEND_URL}/api/settings/taxes`, {
+      headers: adminHeaders,
+    });
+    expect(taxesGetRes.status()).toBe(200);
+    const taxesData = await taxesGetRes.json();
+
+    const createdGst = taxesData.gst_rates.find((g: any) => g.name === gstNameHalf);
+    expect(createdGst).toBeDefined();
+    expect(createdGst.rate).toBe(0.005);
+
+    const createdTds = taxesData.tds_rates.find((t: any) => t.section_code === tdsSectionOne);
+    expect(createdTds).toBeDefined();
+    expect(createdTds.rate).toBe(0.01);
+
+    // 6. Direct API tests for remaining acceptance cases: 1.5% -> 0.015 and 18% -> 0.18
+    const gst15Res = await request.post(`${BACKEND_URL}/api/settings/taxes/gst`, {
+      headers: adminHeaders,
+      data: { name: `GST 1.5% ${suffix}`, rate: 0.015, tax_type: "GST" },
+    });
+    expect(gst15Res.status()).toBe(200);
+
+    const gst18Res = await request.post(`${BACKEND_URL}/api/settings/taxes/gst`, {
+      headers: adminHeaders,
+      data: { name: `GST 18% ${suffix}`, rate: 0.18, tax_type: "GST" },
+    });
+    expect(gst18Res.status()).toBe(200);
+
+    const tds15Res = await request.post(`${BACKEND_URL}/api/settings/taxes/tds`, {
+      headers: adminHeaders,
+      data: { section_code: `TDS-15-${suffix}`, rate: 0.015, description: "1.5% Section" },
+    });
+    expect(tds15Res.status()).toBe(200);
+
+    const tds18Res = await request.post(`${BACKEND_URL}/api/settings/taxes/tds`, {
+      headers: adminHeaders,
+      data: { section_code: `TDS-18-${suffix}`, rate: 0.18, description: "18% Section" },
+    });
+    expect(tds18Res.status()).toBe(200);
+
+    const finalReadback = await request.get(`${BACKEND_URL}/api/settings/taxes`, {
+      headers: adminHeaders,
+    });
+    const finalData = await finalReadback.json();
+
+    const gst15 = finalData.gst_rates.find((g: any) => g.name === `GST 1.5% ${suffix}`);
+    expect(gst15.rate).toBe(0.015);
+
+    const gst18 = finalData.gst_rates.find((g: any) => g.name === `GST 18% ${suffix}`);
+    expect(gst18.rate).toBe(0.18);
+
+    const tds15 = finalData.tds_rates.find((t: any) => t.section_code === `TDS-15-${suffix}`);
+    expect(tds15.rate).toBe(0.015);
+
+    const tds18 = finalData.tds_rates.find((t: any) => t.section_code === `TDS-18-${suffix}`);
+    expect(tds18.rate).toBe(0.18);
+  });
 });
+
 
 

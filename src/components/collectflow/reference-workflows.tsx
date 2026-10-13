@@ -182,16 +182,20 @@ function Workflow({operation,container,close,onSuccess,liveCustomers}: {operatio
        } else if (operation.action === 'fy-delete') {
          await apiClient.deleteFinancialYear(operation.target);
        } else if (operation.action === 'gst-create') {
+         const percentVal = parseFloat(input['percent'] || '0');
+         const decimalRate = Number((percentVal / 100).toFixed(6));
          await apiClient.createGstRate({
            name: input['name'] || '',
-           rate: Number(input['percent'] || 0),
+           rate: decimalRate,
            tax_type: input['tax_type'] || 'GST',
            is_default: input['is_default'] === '1',
          });
        } else if (operation.action === 'tds-create') {
+         const percentVal = parseFloat(input['percent'] || '0');
+         const decimalRate = Number((percentVal / 100).toFixed(6));
          await apiClient.createTdsRate({
            section_code: input['section_code'] || '',
-           rate: Number(input['percent'] || 0),
+           rate: decimalRate,
            description: input['description'] || undefined,
          });
        } else {
