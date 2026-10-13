@@ -35,13 +35,21 @@ export class ApiError extends Error {
   public status: number;
   public details: string | ApiErrorDetail[] | undefined;
   public isNetworkError: boolean;
+  public isSuperseded: boolean;
 
-  constructor(status: number, message: string, details?: string | ApiErrorDetail[] | undefined, isNetworkError = false) {
+  constructor(
+    status: number,
+    message: string,
+    details?: string | ApiErrorDetail[] | undefined,
+    isNetworkError = false,
+    isSuperseded = false
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.details = details;
     this.isNetworkError = isNetworkError;
+    this.isSuperseded = isSuperseded;
   }
 }
 
@@ -127,7 +135,6 @@ class ApiClient {
     this.inMemoryToken = null;
     this.inMemoryUser = null;
     this.sessionGeneration++;
-    this.loginSequence++;
     if (this.onUnauthorizedCallback) {
       this.onUnauthorizedCallback();
     }
@@ -204,7 +211,7 @@ class ApiClient {
 
       // Handle HTTP 401 Unauthorized
       if (response.status === 401) {
-        if (this.sessionGeneration === requestGeneration && this.inMemoryToken === requestToken) {
+        if (this.sessionGeneration === requestGeneration && this.inMemoryToken === requestToken && this.inMemoryToken !== null) {
           this.clearSession();
         }
         let errorMsg = "Unauthorized: Session has expired or credentials are invalid.";
@@ -269,18 +276,42 @@ class ApiClient {
   // Live Authentication API operations
   public async login(credentials: { username: string; password: string }): Promise<AuthSession> {
     const loginSeq = ++this.loginSequence;
-    const res = await this.request<{ success: boolean; token: string; user: UserProfile }>(
-      "/api/auth/login",
-      {
-        method: "POST",
-        body: credentials,
-      }
-    );
+    try {
+      const res = await this.request<{ success: boolean; token: string; user: UserProfile }>(
+        "/api/auth/login",
+        {
+          method: "POST",
+          body: credentials,
+        }
+      );
 
-    if (loginSeq === this.loginSequence) {
+      if (loginSeq !== this.loginSequence) {
+        throw new ApiError(
+          409,
+          "Login request superseded by a newer authentication action.",
+          undefined,
+          false,
+          true
+        );
+      }
+
       this.setToken(res.token, res.user);
+      return { token: res.token, user: res.user };
+    } catch (err: unknown) {
+      if (loginSeq !== this.loginSequence) {
+        if (err instanceof ApiError && err.isSuperseded) {
+          throw err;
+        }
+        throw new ApiError(
+          409,
+          "Login request superseded by a newer authentication action.",
+          undefined,
+          false,
+          true
+        );
+      }
+      throw err;
     }
-    return { token: res.token, user: res.user };
   }
 
   public async fetchCurrentUser(): Promise<UserProfile> {

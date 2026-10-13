@@ -169,5 +169,115 @@ test.describe("Stage 4C.2 Independent UAT Defect Correction Verification", () =>
     });
     expect(delRes.status()).toBe(200);
   });
+
+  test("CF4C2-B03: Browser-driven customer-edit workflow clears optional email and phone in UI and verifies null PUT payload & fresh GET", async ({ page, request }) => {
+    // 0. Setup: Authenticate as admin via API to prepare isolated synthetic customer
+    const adminLoginRes = await request.post(`${BACKEND_URL}/api/auth/login`, {
+      data: { username: "sandbox_admin", password: "AdminPass123!" },
+    });
+    expect(adminLoginRes.status()).toBe(200);
+    const adminToken = (await adminLoginRes.json()).token;
+    const adminHeaders = { Authorization: `Bearer ${adminToken}` };
+
+    const uniqueSuffix = Date.now();
+    const customerName = `UI Edit Test Co ${uniqueSuffix}`;
+    const initialEmail = `ui.edit.${uniqueSuffix}@example.com`;
+    const initialPhone = "+91 9123456789";
+
+    const createRes = await request.post(`${BACKEND_URL}/api/customers`, {
+      headers: adminHeaders,
+      data: {
+        billing_name: customerName,
+        billing_address: "99 Brigade Road",
+        city: "Bengaluru",
+        state: "Karnataka",
+        email: initialEmail,
+        phone_1: initialPhone,
+        contact_person: "Initial UI Contact",
+      },
+    });
+    expect(createRes.status()).toBe(200);
+    const customerId = (await createRes.json()).id;
+
+    try {
+      // 1. Authenticate through the LIVE login screen
+      await page.goto(`${FRONTEND_URL}/login`);
+      await expect(page.getByText(/Mode: LIVE/i)).toBeVisible();
+
+      const loginPromise = page.waitForResponse(
+        (res) => res.url().includes("/api/auth/login") && res.request().method() === "POST"
+      );
+      await page.getByLabel("Username").fill("sandbox_admin");
+      await page.getByLabel("Password").fill("AdminPass123!");
+      await page.getByRole("button", { name: /Sign In/i }).click();
+
+      const loginRes = await loginPromise;
+      expect(loginRes.status()).toBe(200);
+      await expect(page).toHaveURL(`${FRONTEND_URL}/`);
+      await expect(page.getByText(/Live Sandbox Workspace/i)).toBeVisible();
+
+      // 2. Navigate to Customers
+      await page.getByRole("button", { name: "Customers" }).click();
+      await expect(page).toHaveURL(`${FRONTEND_URL}/customers`);
+      await expect(page.getByRole("heading", { name: /Customer directory/i })).toBeVisible();
+
+      // 3. Search and select the isolated synthetic customer
+      await page.getByPlaceholder("Name, GSTIN or contact").fill(customerName);
+      await expect(page.getByRole("button", { name: customerName, exact: true })).toBeVisible();
+
+      // 4. Open its Edit drawer
+      await page.getByRole("button", { name: `Edit ${customerName}` }).click();
+      await expect(page.getByRole("heading", { name: /Edit customer/i })).toBeVisible();
+
+      // Verify initial fields populated in browser inputs
+      await expect(page.getByLabel("Email")).toHaveValue(initialEmail);
+      await expect(page.getByLabel("Primary phone")).toHaveValue(initialPhone);
+
+      // 5. Clear email and phone using browser input actions
+      await page.getByLabel("Email").fill("");
+      await page.getByLabel("Primary phone").fill("");
+
+      // 6. Proceed through Review and Confirm
+      await page.getByRole("button", { name: /Review changes/i }).click();
+      await expect(page.getByText(/Intended reference change/i)).toBeVisible();
+
+      await page.getByRole("button", { name: /Continue to confirmation/i }).click();
+      await expect(page.getByText(/Confirm edit customer in live database/i)).toBeVisible();
+
+      // 7. Verify the resulting PUT payload contains explicit null values
+      const putRequestPromise = page.waitForRequest(
+        (req) => req.url().includes(`/api/customers/${customerId}`) && req.method() === "PUT"
+      );
+
+      await page.getByRole("button", { name: /Confirm reference change/i }).click();
+
+      const putReq = await putRequestPromise;
+      const putPayload = JSON.parse(putReq.postData() || "{}");
+      expect(putPayload.email).toBeNull();
+      expect(putPayload.phone_1).toBeNull();
+
+      // Wait for success result modal/section
+      await expect(page.getByText(/Changes successfully committed to live PostgreSQL database/i)).toBeVisible();
+      await page.getByRole("button", { name: /Return to list/i }).click();
+
+      // 8. Reload customer using a fresh backend GET
+      const freshGetRes = await request.get(`${BACKEND_URL}/api/customers/${customerId}`, {
+        headers: adminHeaders,
+      });
+      expect(freshGetRes.status()).toBe(200);
+      const freshCustomer = await freshGetRes.json();
+
+      // 9. Confirm both optional fields are null in database response
+      expect(freshCustomer.email).toBeNull();
+      expect(freshCustomer.phone_1).toBeNull();
+      expect(freshCustomer.billing_name).toBe(customerName);
+    } finally {
+      // 10. Clean up the synthetic record
+      await request.delete(`${BACKEND_URL}/api/customers/${customerId}`, {
+        headers: adminHeaders,
+      });
+    }
+  });
 });
+
 

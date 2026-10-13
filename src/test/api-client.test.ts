@@ -324,7 +324,7 @@ describe("ApiClient Core & Authentication (Stage 4B)", () => {
     expect(apiClient.getToken()).toBe("token-userB");
     expect(apiClient.getCurrentUser()?.username).toBe("userB");
 
-    // Login A completes second (delayed reverse order)
+    // Login A completes second (delayed reverse order) and must reject as superseded
     resolveLoginA!({
       ok: true,
       status: 200,
@@ -334,12 +334,58 @@ describe("ApiClient Core & Authentication (Stage 4B)", () => {
         user: userA,
       }),
     });
-    await loginAPromise;
+    await expect(loginAPromise).rejects.toThrow(ApiError);
+    await expect(loginAPromise).rejects.toMatchObject({
+      status: 409,
+      isSuperseded: true,
+    });
 
     // The most recent intended login (User B) must control the final session
     expect(apiClient.getToken()).toBe("token-userB");
     expect(apiClient.getCurrentUser()?.username).toBe("userB");
   });
+
+  it("logout invalidates pending in-flight login attempts", async () => {
+    apiClient.configure({ mode: "live", baseUrl: "http://127.0.0.1:8000" });
+    const userA = { id: 1, username: "userA", role: "sales" as const, full_name: "User A" };
+
+    let resolveLogin: (val: any) => void;
+    const delayedLoginPromise = new Promise((resolve) => {
+      resolveLogin = resolve;
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/auth/logout")) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true }) });
+      }
+      return delayedLoginPromise;
+    }));
+
+    const loginPromise = apiClient.login({ username: "userA", password: "PasswordA!" });
+
+    // User logs out while login is in-flight
+    await apiClient.logout();
+
+    // Now late login response arrives
+    resolveLogin!({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        token: "token-userA",
+        user: userA,
+      }),
+    });
+
+    await expect(loginPromise).rejects.toThrow(ApiError);
+    await expect(loginPromise).rejects.toMatchObject({
+      status: 409,
+      isSuperseded: true,
+    });
+    expect(apiClient.getToken()).toBeNull();
+    expect(apiClient.getCurrentUser()).toBeNull();
+  });
 });
+
 
 
