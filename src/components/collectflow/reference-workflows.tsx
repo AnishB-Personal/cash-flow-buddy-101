@@ -127,8 +127,8 @@ export function CustomerDirectory({container,empty=false,openRecord}: {container
          designation: c.designation || "",
          email: c.email || "",
          is_active: c.is_active ? 1 : 0,
-         total_orders: c.total_orders,
-         total_billed: Number(c.total_billed),
+         total_orders: c.total_orders ?? 0,
+         total_billed: Number(c.total_billed || 0),
        }));
        setLiveCustomers(mapped);
        setLiveLoading(false);

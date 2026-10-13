@@ -332,57 +332,57 @@ class ApiClient {
 export interface CustomerDTO {
   id: number;
   billing_name: string;
-  billing_address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  country?: string | null;
-  pin_code?: string | null;
-  gst_number?: string | null;
-  contact_person?: string | null;
-  designation?: string | null;
-  email?: string | null;
-  phone_1?: string | null;
-  phone_2?: string | null;
+  billing_address?: string | null | undefined;
+  city?: string | null | undefined;
+  state?: string | null | undefined;
+  country?: string | null | undefined;
+  pin_code?: string | null | undefined;
+  gst_number?: string | null | undefined;
+  contact_person?: string | null | undefined;
+  designation?: string | null | undefined;
+  email?: string | null | undefined;
+  phone_1?: string | null | undefined;
+  phone_2?: string | null | undefined;
   is_active: boolean;
-  total_orders?: number;
-  unbilled_orders_value?: string;
-  total_billed?: string;
-  total_cash?: string;
-  total_tds?: string;
-  total_settled?: string;
-  total_paid?: string;
-  total_outstanding?: string;
+  total_orders?: number | undefined;
+  unbilled_orders_value?: string | undefined;
+  total_billed?: string | undefined;
+  total_cash?: string | undefined;
+  total_tds?: string | undefined;
+  total_settled?: string | undefined;
+  total_paid?: string | undefined;
+  total_outstanding?: string | undefined;
 }
 
 export interface CustomerCreateDTO {
   billing_name: string;
-  billing_address?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  pin_code?: string;
-  gst_number?: string;
-  contact_person?: string;
-  designation?: string;
-  email?: string;
-  phone_1?: string;
-  phone_2?: string;
+  billing_address?: string | null | undefined;
+  city?: string | null | undefined;
+  state?: string | null | undefined;
+  country?: string | null | undefined;
+  pin_code?: string | null | undefined;
+  gst_number?: string | null | undefined;
+  contact_person?: string | null | undefined;
+  designation?: string | null | undefined;
+  email?: string | null | undefined;
+  phone_1?: string | null | undefined;
+  phone_2?: string | null | undefined;
 }
 
 export interface CustomerUpdateDTO {
-  billing_name?: string;
-  billing_address?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  pin_code?: string;
-  gst_number?: string;
-  contact_person?: string;
-  designation?: string;
-  email?: string;
-  phone_1?: string;
-  phone_2?: string;
-  is_active?: boolean;
+  billing_name?: string | null | undefined;
+  billing_address?: string | null | undefined;
+  city?: string | null | undefined;
+  state?: string | null | undefined;
+  country?: string | null | undefined;
+  pin_code?: string | null | undefined;
+  gst_number?: string | null | undefined;
+  contact_person?: string | null | undefined;
+  designation?: string | null | undefined;
+  email?: string | null | undefined;
+  phone_1?: string | null | undefined;
+  phone_2?: string | null | undefined;
+  is_active?: boolean | undefined;
 }
 
 export const apiClient = new ApiClient();
