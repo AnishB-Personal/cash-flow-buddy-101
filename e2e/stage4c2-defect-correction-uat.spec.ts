@@ -53,6 +53,7 @@ test.describe("Stage 4C.2 Independent UAT Defect Correction Verification", () =>
 
     // Live PostgreSQL seeded records Acme and TechVanguard
     await expect(page.getByRole("button", { name: "Acme Cloud Solutions Pvt Ltd", exact: true })).toBeVisible();
+    await page.getByPlaceholder("Name, GSTIN or contact").fill("TechVanguard");
     await expect(page.getByRole("button", { name: "TechVanguard Infotech LLP", exact: true })).toBeVisible();
 
     // Verify Sign out
@@ -107,4 +108,66 @@ test.describe("Stage 4C.2 Independent UAT Defect Correction Verification", () =>
     });
     expect(delRes.status()).toBe(200);
   });
+
+  test("CF4C2-B02: Live customer-edit clears optional email and phone and confirms via fresh GET", async ({ request }) => {
+    // 1. Authenticate as admin
+    const adminLoginRes = await request.post(`${BACKEND_URL}/api/auth/login`, {
+      data: { username: "sandbox_admin", password: "AdminPass123!" },
+    });
+    expect(adminLoginRes.status()).toBe(200);
+    const adminToken = (await adminLoginRes.json()).token;
+    const adminHeaders = { Authorization: `Bearer ${adminToken}` };
+
+    // 2. Create customer with optional fields populated (email, phone_1, contact_person)
+    const createRes = await request.post(`${BACKEND_URL}/api/customers`, {
+      headers: adminHeaders,
+      data: {
+        billing_name: `Optional Fields Test Customer ${Date.now()}`,
+        billing_address: "100 MG Road",
+        city: "Bengaluru",
+        state: "Karnataka",
+        email: "initial.contact@example.com",
+        phone_1: "+91 9888877777",
+        contact_person: "Initial Contact",
+      },
+    });
+    expect(createRes.status()).toBe(200);
+    const customerId = (await createRes.json()).id;
+
+    // 3. Verify created customer has populated email and phone_1
+    const getRes1 = await request.get(`${BACKEND_URL}/api/customers/${customerId}`, {
+      headers: adminHeaders,
+    });
+    expect(getRes1.status()).toBe(200);
+    const cust1 = await getRes1.json();
+    expect(cust1.email).toBe("initial.contact@example.com");
+    expect(cust1.phone_1).toBe("+91 9888877777");
+
+    // 4. Update customer to CLEAR optional fields (email and phone_1 explicitly cleared to null)
+    const updateRes = await request.put(`${BACKEND_URL}/api/customers/${customerId}`, {
+      headers: adminHeaders,
+      data: {
+        email: null,
+        phone_1: null,
+      },
+    });
+    expect(updateRes.status()).toBe(200);
+
+    // 5. Fresh GET confirms cleared values in PostgreSQL
+    const getRes2 = await request.get(`${BACKEND_URL}/api/customers/${customerId}`, {
+      headers: adminHeaders,
+    });
+    expect(getRes2.status()).toBe(200);
+    const cust2 = await getRes2.json();
+    expect(cust2.email).toBeNull();
+    expect(cust2.phone_1).toBeNull();
+    expect(cust2.billing_name).toBe(cust1.billing_name);
+
+    // 6. Clean up created customer
+    const delRes = await request.delete(`${BACKEND_URL}/api/customers/${customerId}`, {
+      headers: adminHeaders,
+    });
+    expect(delRes.status()).toBe(200);
+  });
 });
+

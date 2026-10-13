@@ -103,6 +103,7 @@ class ApiClient {
   }
 
   private sessionGeneration = 0;
+  private loginSequence = 0;
 
   public getSessionGeneration(): number {
     return this.sessionGeneration;
@@ -126,6 +127,7 @@ class ApiClient {
     this.inMemoryToken = null;
     this.inMemoryUser = null;
     this.sessionGeneration++;
+    this.loginSequence++;
     if (this.onUnauthorizedCallback) {
       this.onUnauthorizedCallback();
     }
@@ -266,6 +268,7 @@ class ApiClient {
 
   // Live Authentication API operations
   public async login(credentials: { username: string; password: string }): Promise<AuthSession> {
+    const loginSeq = ++this.loginSequence;
     const res = await this.request<{ success: boolean; token: string; user: UserProfile }>(
       "/api/auth/login",
       {
@@ -274,7 +277,9 @@ class ApiClient {
       }
     );
 
-    this.setToken(res.token, res.user);
+    if (loginSeq === this.loginSequence) {
+      this.setToken(res.token, res.user);
+    }
     return { token: res.token, user: res.user };
   }
 
@@ -300,6 +305,7 @@ class ApiClient {
     this.inMemoryToken = null;
     this.inMemoryUser = null;
     this.sessionGeneration++;
+    this.loginSequence++;
 
     if (tokenToRevoke && this.mode === "live" && this.baseUrl) {
       try {

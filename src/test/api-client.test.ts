@@ -286,5 +286,60 @@ describe("ApiClient Core & Authentication (Stage 4B)", () => {
     expect(apiClient.getToken()).toBe("token-2");
     expect(apiClient.getCurrentUser()?.username).toBe("user2");
   });
+
+  it("two overlapping login requests returning in reverse order preserves the most recent intended login", async () => {
+    apiClient.configure({ mode: "live", baseUrl: "http://127.0.0.1:8000" });
+    const userA = { id: 1, username: "userA", role: "sales" as const, full_name: "User A" };
+    const userB = { id: 2, username: "userB", role: "admin" as const, full_name: "User B" };
+
+    let resolveLoginA: (val: any) => void;
+    const delayedLoginAPromise = new Promise((resolve) => {
+      resolveLoginA = resolve;
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, options: any) => {
+      const body = typeof options.body === "string" ? JSON.parse(options.body) : options.body;
+      if (body.username === "userA") {
+        return delayedLoginAPromise;
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          token: "token-userB",
+          user: userB,
+        }),
+      });
+    }));
+
+    // User A login initiated first
+    const loginAPromise = apiClient.login({ username: "userA", password: "PasswordA!" });
+
+    // User B login initiated second (most recent intended login)
+    const loginBPromise = apiClient.login({ username: "userB", password: "PasswordB!" });
+
+    // Login B completes first
+    await loginBPromise;
+    expect(apiClient.getToken()).toBe("token-userB");
+    expect(apiClient.getCurrentUser()?.username).toBe("userB");
+
+    // Login A completes second (delayed reverse order)
+    resolveLoginA!({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        token: "token-userA",
+        user: userA,
+      }),
+    });
+    await loginAPromise;
+
+    // The most recent intended login (User B) must control the final session
+    expect(apiClient.getToken()).toBe("token-userB");
+    expect(apiClient.getCurrentUser()?.username).toBe("userB");
+  });
 });
+
 

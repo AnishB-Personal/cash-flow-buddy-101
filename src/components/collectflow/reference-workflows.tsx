@@ -157,18 +157,18 @@ function Workflow({operation,container,close,onSuccess,liveCustomers}: {operatio
        } else if (operation.action === 'customer-edit') {
          const cid = Number(operation.target);
          await apiClient.updateCustomer(cid, {
-           billing_name: input['billing_name'] || undefined,
-           billing_address: input['billing_address'] || undefined,
-           city: input['city'] || undefined,
-           state: input['state'] || undefined,
-           country: input['country'] || undefined,
-           pin_code: input['pin_code'] || undefined,
-           gst_number: input['gst_number'] || undefined,
-           contact_person: input['contact_person'] || undefined,
-           designation: input['designation'] || undefined,
-           email: input['email'] || undefined,
-           phone_1: input['phone_1'] || undefined,
-           phone_2: input['phone_2'] || undefined,
+           billing_name: input['billing_name']?.trim() || undefined,
+           billing_address: input['billing_address']?.trim() || undefined,
+           city: input['city'] !== undefined ? (input['city'].trim() || null) : undefined,
+           state: input['state']?.trim() || undefined,
+           country: input['country']?.trim() || undefined,
+           pin_code: input['pin_code'] !== undefined ? (input['pin_code'].trim() || null) : undefined,
+           gst_number: input['gst_number'] !== undefined ? (input['gst_number'].trim() || null) : undefined,
+           contact_person: input['contact_person'] !== undefined ? (input['contact_person'].trim() || null) : undefined,
+           designation: input['designation'] !== undefined ? (input['designation'].trim() || null) : undefined,
+           email: input['email'] !== undefined ? (input['email'].trim() || null) : undefined,
+           phone_1: input['phone_1'] !== undefined ? (input['phone_1'].trim() || null) : undefined,
+           phone_2: input['phone_2'] !== undefined ? (input['phone_2'].trim() || null) : undefined,
          });
        } else if (operation.action === 'customer-delete') {
          const cid = Number(operation.target);

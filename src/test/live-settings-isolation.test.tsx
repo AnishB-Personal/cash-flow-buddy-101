@@ -146,4 +146,39 @@ describe('H04: LIVE Settings & Statutory Reference Isolation', () => {
       });
     });
   });
+
+  it('sends null for cleared optional fields (email and phone) in customer-edit API request', async () => {
+    apiClient.setToken('admin-token', {
+      id: 1,
+      username: 'admin',
+      role: 'admin',
+      full_name: 'Admin User',
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, message: 'Customer updated successfully' }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await apiClient.updateCustomer(42, {
+      billing_name: 'Acme Cloud Solutions Pvt Ltd',
+      email: null,
+      phone_1: null,
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/customers/42',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          billing_name: 'Acme Cloud Solutions Pvt Ltd',
+          email: null,
+          phone_1: null,
+        }),
+      })
+    );
+  });
 });
+
