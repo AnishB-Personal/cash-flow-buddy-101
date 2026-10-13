@@ -102,9 +102,16 @@ class ApiClient {
     return this.baseUrl;
   }
 
+  private sessionGeneration = 0;
+
+  public getSessionGeneration(): number {
+    return this.sessionGeneration;
+  }
+
   public setToken(token: string | null, user?: UserProfile | null): void {
     this.inMemoryToken = token;
     this.inMemoryUser = user || null;
+    this.sessionGeneration++;
   }
 
   public getToken(): string | null {
@@ -118,6 +125,7 @@ class ApiClient {
   public clearSession(): void {
     this.inMemoryToken = null;
     this.inMemoryUser = null;
+    this.sessionGeneration++;
     if (this.onUnauthorizedCallback) {
       this.onUnauthorizedCallback();
     }
@@ -327,7 +335,66 @@ class ApiClient {
   public async getTaxes(): Promise<any> {
     return await this.request<any>("/api/settings/taxes");
   }
+
+  // User Management Operations (Admin RBAC)
+  public async getUsers(): Promise<ManagedUserDTO[]> {
+    return await this.request<ManagedUserDTO[]>("/api/users");
+  }
+
+  public async createUser(data: {
+    username: string;
+    password: string;
+    role: "admin" | "finance" | "sales" | "viewer";
+    full_name?: string | null;
+  }): Promise<{ success: boolean; user_id: number; message: string }> {
+    return await this.request<{ success: boolean; user_id: number; message: string }>("/api/users", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  public async updateUser(
+    id: number,
+    data: { role?: string; full_name?: string | null; is_active?: boolean }
+  ): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>(`/api/users/${id}`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  public async deleteUser(id: number): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>(`/api/users/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  public async deactivateUser(id: number): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>(`/api/users/${id}/deactivate`, {
+      method: "PUT",
+    });
+  }
+
+  public async resetUserPassword(
+    id: number,
+    newPassword: string
+  ): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>(`/api/users/${id}/password`, {
+      method: "PUT",
+      body: { new_password: newPassword },
+    });
+  }
 }
+
+export interface ManagedUserDTO {
+  id: number;
+  username: string;
+  role: "admin" | "finance" | "sales" | "viewer";
+  full_name?: string | null;
+  is_active: boolean;
+  created_at?: string | null;
+}
+
 
 export interface CustomerDTO {
   id: number;

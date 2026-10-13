@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const STAGING_FRONTEND = "https://collectflow-stage4c2-staging.aanishb.workers.dev";
+const FRONTEND_URL = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000";
 const PROTECTED_ROUTES = [
   "/",
   "/customers",
@@ -18,8 +18,8 @@ const PROTECTED_ROUTES = [
 test.describe("Stage 4C.2: Comprehensive Anonymous Protected Route Boundary", () => {
   for (const route of PROTECTED_ROUTES) {
     test(`Unauthenticated direct navigation to ${route} redirects to /login`, async ({ page }) => {
-      await page.goto(`${STAGING_FRONTEND}${route}`);
-      await expect(page).toHaveURL(`${STAGING_FRONTEND}/login`);
+      await page.goto(`${FRONTEND_URL}${route}`);
+      await expect(page).toHaveURL(`${FRONTEND_URL}/login`);
       await expect(page.getByRole("heading", { name: "CollectFlow" })).toBeVisible();
       await expect(page.getByText(/Mode: LIVE/i)).toBeVisible();
       // Ensure zero simulated signed-in identity or workspace leaked
@@ -29,7 +29,7 @@ test.describe("Stage 4C.2: Comprehensive Anonymous Protected Route Boundary", ()
   }
 
   test("Authenticated live user sees real user identity and stage notices on unintegrated screens", async ({ page }) => {
-    await page.goto(`${STAGING_FRONTEND}/login`);
+    await page.goto(`${FRONTEND_URL}/login`);
 
     const loginPromise = page.waitForResponse(
       (res) => res.url().includes("/api/auth/login") && res.request().method() === "POST"
@@ -40,7 +40,7 @@ test.describe("Stage 4C.2: Comprehensive Anonymous Protected Route Boundary", ()
     await page.getByRole("button", { name: /Sign In/i }).click();
 
     await loginPromise;
-    await expect(page).toHaveURL(`${STAGING_FRONTEND}/`);
+    await expect(page).toHaveURL(`${FRONTEND_URL}/`);
 
     // Verify real user identity in sidebar, NOT mock Aisha Khan
     await expect(page.getByText(/Sandbox Administrator/i)).toBeVisible();
@@ -48,7 +48,7 @@ test.describe("Stage 4C.2: Comprehensive Anonymous Protected Route Boundary", ()
 
     // Navigate to /orders
     await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Orders" }).click();
-    await expect(page).toHaveURL(`${STAGING_FRONTEND}/orders`);
+    await expect(page).toHaveURL(`${FRONTEND_URL}/orders`);
 
     // Verify stage notice is clearly displayed
     await expect(page.getByText(/Stage Notice: Orders screen is not yet integrated with the live backend/i)).toBeVisible();

@@ -100,10 +100,12 @@ export function computeGstBreakdown(
       isInterState: true,
     };
   } else {
+    const totalTaxAmount = multiplyMoney(exclusiveAmountStr, rateNum);
     const halfRate = rateNum / 2;
     const cgstAmount = multiplyMoney(exclusiveAmountStr, halfRate);
-    const sgstAmount = multiplyMoney(exclusiveAmountStr, halfRate);
-    const totalTax = formatPaise(parsePaise(cgstAmount) + parsePaise(sgstAmount));
+    // Residual allocation guarantees cgstAmount + sgstAmount === totalTaxAmount without 1-paisa drift
+    const sgstPaise = parsePaise(totalTaxAmount) - parsePaise(cgstAmount);
+    const sgstAmount = formatPaise(sgstPaise);
     return {
       cgstRate: halfRate.toFixed(4),
       sgstRate: halfRate.toFixed(4),
@@ -111,7 +113,7 @@ export function computeGstBreakdown(
       cgstAmount,
       sgstAmount,
       igstAmount: "0.00",
-      totalTaxAmount: totalTax,
+      totalTaxAmount,
       isInterState: false,
     };
   }

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
-const STAGING_FRONTEND = "https://collectflow-stage4c2-staging.aanishb.workers.dev";
-const BACKEND_TUNNEL = "https://bags-condition-energy-flexible.trycloudflare.com";
+const FRONTEND_URL = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000";
+const BACKEND_URL = process.env.PLAYWRIGHT_BACKEND_URL || "http://127.0.0.1:8000";
 
 const VIEWPORTS = [
   { name: "desktop-1440", width: 1440, height: 900 },
@@ -16,7 +16,7 @@ for (const vp of VIEWPORTS) {
 
     test(`Verify /login and live workspace rendering at ${vp.width}px`, async ({ page }) => {
       // 1. Visit /login
-      await page.goto(`${STAGING_FRONTEND}/login`);
+      await page.goto(`${FRONTEND_URL}/login`);
       await expect(page.getByRole("heading", { name: "CollectFlow" })).toBeVisible();
       await expect(page.getByText(/Mode: LIVE/i)).toBeVisible();
 
@@ -30,7 +30,7 @@ for (const vp of VIEWPORTS) {
       await page.getByRole("button", { name: /Sign In/i }).click();
 
       await loginPromise;
-      await expect(page).toHaveURL(`${STAGING_FRONTEND}/`);
+      await expect(page).toHaveURL(`${FRONTEND_URL}/`);
       await expect(page.getByText(/Live Sandbox Workspace/i)).toBeVisible();
 
       // Ensure mock workspace controls are absent

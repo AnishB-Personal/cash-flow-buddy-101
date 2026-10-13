@@ -1,5 +1,5 @@
-import { apiClient } from "@/lib/api-client";
-import { useState, useEffect, useRef } from "react";
+import { apiClient, ApiError } from "@/lib/api-client";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowUpRight,
@@ -212,18 +212,43 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     setRecord(row);
     setSearchOpen(false);
   }
-  useEffect(() => {
-    if (isLive) {
-      if (!apiClient.getToken()) {
-        void routerNavigate({ to: "/login" });
-        return;
-      }
-      apiClient.fetchCurrentUser().catch(() => {
-        apiClient.clearSession();
-        void routerNavigate({ to: "/login" });
-      });
+  const [liveAuthState, setLiveAuthState] = useState<"checking" | "authenticated" | "unauthenticated" | "network_error">(
+    isLive ? (apiClient.getToken() ? "checking" : "unauthenticated") : "authenticated"
+  );
+  const [liveAuthError, setLiveAuthError] = useState<string | null>(null);
+
+  const checkLiveSession = useCallback(() => {
+    if (!isLive) return;
+    if (!apiClient.getToken()) {
+      setLiveAuthState("unauthenticated");
+      void routerNavigate({ to: "/login" });
+      return;
     }
+    const currentGen = apiClient.getSessionGeneration();
+    setLiveAuthState("checking");
+    setLiveAuthError(null);
+    apiClient.fetchCurrentUser()
+      .then(() => {
+        if (apiClient.getSessionGeneration() === currentGen) {
+          setLiveAuthState("authenticated");
+        }
+      })
+      .catch((err: unknown) => {
+        if (apiClient.getSessionGeneration() !== currentGen) return;
+        if (err instanceof ApiError && err.isNetworkError) {
+          setLiveAuthState("network_error");
+          setLiveAuthError(err.message);
+        } else {
+          apiClient.clearSession();
+          setLiveAuthState("unauthenticated");
+          void routerNavigate({ to: "/login" });
+        }
+      });
   }, [isLive, routerNavigate]);
+
+  useEffect(() => {
+    checkLiveSession();
+  }, [checkLiveSession]);
 
   function unavailable(action: string) {
     setNotice(
@@ -232,7 +257,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   }
   function startRecordPayment(row: Invoice) {
     if (isLive) {
-      setNotice("Payment recording and settlements are scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      setNotice("Payment recording and settlements are deferred to Stage 4C.4 under PostgreSQL architecture.");
       return;
     }
     setRecord(null);
@@ -240,7 +265,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   }
   function startCancelInvoice(row: Invoice) {
     if (isLive) {
-      setNotice("Invoice cancellation is scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      setNotice("Invoice cancellation is deferred to Stage 4C.3 under PostgreSQL architecture.");
       return;
     }
     setRecord(null);
@@ -248,7 +273,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   }
   function startCreateOrder() {
     if (isLive) {
-      setNotice("Order management is scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      setNotice("Purchase order creation is deferred to Stage 4C.3 under PostgreSQL architecture.");
       return;
     }
     setRecord(null);
@@ -262,7 +287,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   }
   function startEditOrder(row: Invoice) {
     if (isLive) {
-      setNotice("Order editing is scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      setNotice("Purchase order editing is deferred to Stage 4C.3 under PostgreSQL architecture.");
       return;
     }
     setRecord(null);
@@ -277,7 +302,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   }
   function startConvertOrder(row: Invoice) {
     if (isLive) {
-      setNotice("Order conversion is scheduled for Stage 4C.3 under PostgreSQL. Action disabled in live mode.");
+      setNotice("Order conversion to invoice is deferred to Stage 4C.3 under PostgreSQL architecture.");
       return;
     }
     setRecord(null);
@@ -291,6 +316,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     });
   }
   function startDeleteOrder(row: Invoice) {
+    if (isLive) {
+      setNotice("Purchase order deletion is deferred to Stage 4C.3 under PostgreSQL architecture.");
+      return;
+    }
     setRecord(null);
     setOrderOp({
       action: "order-delete",
@@ -316,6 +345,49 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
       .toLowerCase()
       .includes(global.toLowerCase()),
   );
+
+  if (isLive && liveAuthState === "unauthenticated") {
+    return null;
+  }
+
+  if (isLive && liveAuthState === "checking") {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6" role="status" aria-label="Validating session">
+        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-medium text-slate-300">Validating live session...</p>
+      </div>
+    );
+  }
+
+  if (isLive && liveAuthState === "network_error") {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-4" role="alert">
+        <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-xl p-6 text-center space-y-4 shadow-xl">
+          <div className="w-12 h-12 rounded-full bg-rose-500/10 text-rose-400 mx-auto flex items-center justify-center font-bold text-xl">!</div>
+          <h2 className="text-lg font-semibold text-slate-100">Backend Connection Error</h2>
+          <p className="text-sm text-slate-300">{liveAuthError || "Unable to reach the live CollectFlow backend service."}</p>
+          <div className="flex gap-3 justify-center pt-2">
+            <button
+              onClick={() => checkLiveSession()}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              Retry Connection
+            </button>
+            <button
+              onClick={() => {
+                apiClient.clearSession();
+                void routerNavigate({ to: "/login" });
+              }}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+            >
+              Return to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`cf-app ${mobile ? "cf-preview-mobile" : ""}`}>
       <div className="cf-review-bar">
@@ -624,7 +696,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                       openInvoice={open}
                       container={mobile ? frame : undefined}
                       unavailable={unavailable}
-                      onCorrectPayment={setCorrectionPayment}
+                      onCorrectPayment={isLive ? () => setNotice("Payment corrections are deferred to Stage 4C.4 under PostgreSQL architecture.") : setCorrectionPayment}
                     />
                   )}
                   {page === "Dashboard" && (
@@ -780,7 +852,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                     <ReportsHub
                       container={mobile ? frame : undefined}
                       empty={state === "Empty"}
-                      onOpenExport={() => setExportOpen(true)}
+                      onOpenExport={isLive ? () => setNotice("Reports and exports are deferred to Stage 4C.5 under PostgreSQL architecture.") : () => setExportOpen(true)}
                     />
                   )}
                 </>

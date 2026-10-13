@@ -22,9 +22,11 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: 'npm run dev -- --port 3000',
+    command: (process.env.VITE_API_MODE === 'live' || process.env.LIVE_MODE === '1')
+      ? 'VITE_API_MODE=live VITE_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --port 3000'
+      : 'npm run dev -- --port 3000',
     url: 'http://127.0.0.1:3000',
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 60000,
   },
   projects: [

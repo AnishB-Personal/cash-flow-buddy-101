@@ -14,7 +14,7 @@ import { EmptyState, FilterChoice } from './controls';
 
 type Operation = {action:ReferenceAction;target:string;label:string;values:ReferenceInput;example:ReferenceInput};
 const names: Record<string,string> = {billing_name:'Billing name',billing_address:'Billing address',city:'City',state:'State',country:'Country code',pin_code:'Postal code',gst_number:'GSTIN',phone_1:'Primary phone',phone_2:'Secondary phone',contact_person:'Contact person',designation:'Designation',email:'Email',code:'Financial year code',start_date:'Start date',end_date:'End date',name:'Rate name',percent:'Rate (%)',tax_type:'Tax type',is_default:'Default rate',section_code:'TDS section',description:'Description'};
-function Workflow({operation,container,close,onSuccess}: {operation:Operation;container?:HTMLElement|null|undefined;close:()=>void;onSuccess?:()=>void}) {
+function Workflow({operation,container,close,onSuccess,liveCustomers}: {operation:Operation;container?:HTMLElement|null|undefined;close:()=>void;onSuccess?:()=>void;liveCustomers?:Customer[]}) {
  const {role,references,confirmReference,revision,fy}=useMockSession();
  const isLive = apiClient.getMode() === "live";
  const currentUser = apiClient.getCurrentUser();
@@ -24,7 +24,38 @@ function Workflow({operation,container,close,onSuccess}: {operation:Operation;co
  const trigger=useRef<HTMLElement|null>(typeof document==='undefined'?null:document.activeElement as HTMLElement);
  const allowed=referencePermitted(effectiveRole,operation.action);
  function requestClose(){if(pending)return;if(dirty&&step!=='result')setDiscard(true);else close();}
- function prepare(){const parsed=referenceSchema(operation.action).safeParse(input);if(!parsed.success){setErrors(Object.fromEntries(parsed.error.issues.map(issue=>[String(issue.path[0]),issue.message])));return;}setErrors({});try{setReview(reviewReference(operation.action,operation.target,parsed.data,effectiveRole,references));setStep('review');setError('');origin.current={revision,fy,role};}catch(e){setError(e instanceof Error?e.message:'Review failed. Try again.');}}
+ function prepare(){
+   const parsed=referenceSchema(operation.action).safeParse(input);
+   if(!parsed.success){setErrors(Object.fromEntries(parsed.error.issues.map(issue=>[String(issue.path[0]),issue.message])));return;}
+   setErrors({});
+   try{
+     if (isLive && operation.action.startsWith('customer-')) {
+       const currentCustomer = liveCustomers?.find(c => String(c.id) === operation.target);
+       const dataObj = parsed.data as Record<string, string>;
+       const diffInput: ReferenceInput = (operation.action === 'customer-create' ? dataObj : {
+         ...(currentCustomer ? customerForm(currentCustomer) : {}),
+         ...dataObj,
+       }) as ReferenceInput;
+       setReview({
+         action: operation.action,
+         target: operation.target,
+         input: diffInput,
+         message: operation.action === 'customer-create' ? `Create customer ${diffInput['billing_name'] || ''}` : operation.action === 'customer-edit' ? `Update customer ${currentCustomer?.billing_name || operation.target}` : `Delete customer ${currentCustomer?.billing_name || operation.target}`,
+         supported: true,
+         context: 'live',
+         before: references,
+         after: references,
+       });
+       setStep('review');
+       setError('');
+       return;
+     }
+     setReview(reviewReference(operation.action,operation.target,parsed.data,effectiveRole,references));
+     setStep('review');
+     setError('');
+     origin.current={revision,fy,role};
+   }catch(e){setError(e instanceof Error?e.message:'Review failed. Try again.');}
+ }
  async function confirm(){
    if(!review||submitting.current)return;
    submitting.current=true;
@@ -106,12 +137,15 @@ export function CustomerDirectory({container,empty=false,openRecord}: {container
  const [liveLoading, setLiveLoading] = useState(false);
  const [liveError, setLiveError] = useState<string | null>(null);
 
+ const fetchRequestId = useRef(0);
  const fetchLiveCustomers = () => {
    if (!isLive) return;
+   const currentId = ++fetchRequestId.current;
    setLiveLoading(true);
    setLiveError(null);
    apiClient.getCustomers()
      .then(data => {
+       if (currentId !== fetchRequestId.current) return;
        const mapped: Customer[] = data.map(c => ({
          id: c.id,
          billing_name: c.billing_name,
@@ -134,6 +168,7 @@ export function CustomerDirectory({container,empty=false,openRecord}: {container
        setLiveLoading(false);
      })
      .catch(err => {
+       if (currentId !== fetchRequestId.current) return;
        setLiveError(err.message || "Failed to load customers from backend");
        setLiveLoading(false);
      });
@@ -150,7 +185,7 @@ export function CustomerDirectory({container,empty=false,openRecord}: {container
  const selected=dataSource.find(row=>row.id===detail);
  function act(action:ReferenceAction,customer?:Customer){setOperation({action,target:customer?String(customer.id):'',label:action==='customer-create'?'Create customer':action==='customer-edit'?'Edit customer':'Delete customer',values:action==='customer-delete'?{}:customerForm(customer),example:customer?editExample(customer):customerExample});}
  const actions=(row:Customer)=><div className="cf-reference-actions"><Button variant="ghost" size="icon" aria-label={`View ${row.billing_name}`} title="Customer details" onClick={()=>setDetail(row.id)}><ArrowUpRight size={17}/></Button>{referencePermitted(effectiveRole,'customer-edit')&&<><Button variant="ghost" size="icon" aria-label={`Edit ${row.billing_name}`} title="Edit customer" onClick={()=>act('customer-edit',row)}><Pencil size={16}/></Button><Button variant="ghost" size="icon" aria-label={`Delete ${row.billing_name}`} title="Delete customer" onClick={()=>act('customer-delete',row)}><Trash2 size={16}/></Button></>}</div>;
- return <section className="cf-reference-section"><header className="cf-section-header"><h2>Customer directory <span className="cf-count">{rows.length}</span></h2>{referencePermitted(effectiveRole,'customer-create')&&<Button onClick={()=>act('customer-create')}><Plus size={17}/>New customer</Button>}</header>{liveError&&<div className="cf-field-error" role="alert">{liveError}</div>}{liveLoading&&<p className="cf-muted" role="status">Loading live customer master…</p>}<div className="cf-reference-tools"><div className="cf-table-search"><Search size={18}/><Input aria-label="Search customers" maxLength={200} value={query} placeholder="Name, GSTIN or contact" onChange={e=>{setQuery(e.target.value);setPage(1);}}/></div><FilterChoice label="Customer state" value={region} options={['All states',...Array.from(new Set(references.customers.map(row=>row.state||'Not supplied')))]} onChange={value=>{setRegion(value);setPage(1);}}/><FilterChoice label="Customer sort" value={sort} options={['Name A–Z','Name Z–A']} onChange={setSort}/></div>{!rows.length?<EmptyState onReset={()=>{setQuery('');setRegion('All states');}}/>:<><div className="cf-table-container"><table className="cf-table cf-customer-table"><thead><tr><th>Customer / GSTIN</th><th>Contact</th><th>State</th><th>Actions</th></tr></thead><tbody>{visible.map(row=><tr key={row.id}><td><Button variant="link" onClick={()=>setDetail(row.id)}>{row.billing_name}</Button><small>{row.gst_number||'No GSTIN supplied'}</small></td><td>{row.contact_person||'Not supplied'}<small>{row.email||'No email supplied'}</small><small>{row.phone_1||'No phone supplied'}</small></td><td>{row.state||'Not supplied'}</td><td>{actions(row)}</td></tr>)}</tbody></table></div><div className="cf-mobile-cards">{visible.map(row=><article className="cf-record-card" key={row.id}><h3>{row.billing_name}</h3><dl><div><dt>GSTIN</dt><dd>{row.gst_number||'Not supplied'}</dd></div><div><dt>State</dt><dd>{row.state||'Not supplied'}</dd></div><div><dt>Contact</dt><dd>{row.contact_person||'Not supplied'}</dd></div><div><dt>Email</dt><dd>{row.email||'Not supplied'}</dd></div></dl><footer>{actions(row)}</footer></article>)}</div><footer className="cf-table-footer"><span>{rows.length} customers · page {current} of {pages}</span><div><FilterChoice label="Customers per page" value={size} options={['1','10','25']} onChange={value=>{setSize(value);setPage(1);}}/><Button variant="ghost" size="icon" aria-label="Previous customer page" disabled={current===1} onClick={()=>setPage(current-1)}><ChevronLeft size={16}/></Button><Button variant="ghost" size="icon" aria-label="Next customer page" disabled={current===pages} onClick={()=>setPage(current+1)}><ChevronRight size={16}/></Button></div></footer></>}{operation&&<Workflow operation={operation} container={container} close={()=>setOperation(null)} onSuccess={fetchLiveCustomers}/>}{selected&&<CustomerDetails customer={selected} container={container} close={()=>setDetail(null)} openRecord={openRecord}/>}</section>;
+ return <section className="cf-reference-section"><header className="cf-section-header"><h2>Customer directory <span className="cf-count">{rows.length}</span></h2>{referencePermitted(effectiveRole,'customer-create')&&<Button onClick={()=>act('customer-create')}><Plus size={17}/>New customer</Button>}</header>{liveError&&<div className="cf-field-error" role="alert">{liveError}</div>}{liveLoading&&<p className="cf-muted" role="status">Loading live customer master…</p>}<div className="cf-reference-tools"><div className="cf-table-search"><Search size={18}/><Input aria-label="Search customers" maxLength={200} value={query} placeholder="Name, GSTIN or contact" onChange={e=>{setQuery(e.target.value);setPage(1);}}/></div><FilterChoice label="Customer state" value={region} options={['All states',...Array.from(new Set(dataSource.map(row=>row.state||'Not supplied')))]} onChange={value=>{setRegion(value);setPage(1);}}/><FilterChoice label="Customer sort" value={sort} options={['Name A–Z','Name Z–A']} onChange={setSort}/></div>{!rows.length?<EmptyState onReset={()=>{setQuery('');setRegion('All states');}}/>:<><div className="cf-table-container"><table className="cf-table cf-customer-table"><thead><tr><th>Customer / GSTIN</th><th>Contact</th><th>State</th><th>Actions</th></tr></thead><tbody>{visible.map(row=><tr key={row.id}><td><Button variant="link" onClick={()=>setDetail(row.id)}>{row.billing_name}</Button><small>{row.gst_number||'No GSTIN supplied'}</small></td><td>{row.contact_person||'Not supplied'}<small>{row.email||'No email supplied'}</small><small>{row.phone_1||'No phone supplied'}</small></td><td>{row.state||'Not supplied'}</td><td>{actions(row)}</td></tr>)}</tbody></table></div><div className="cf-mobile-cards">{visible.map(row=><article className="cf-record-card" key={row.id}><h3>{row.billing_name}</h3><dl><div><dt>GSTIN</dt><dd>{row.gst_number||'Not supplied'}</dd></div><div><dt>State</dt><dd>{row.state||'Not supplied'}</dd></div><div><dt>Contact</dt><dd>{row.contact_person||'Not supplied'}</dd></div><div><dt>Email</dt><dd>{row.email||'Not supplied'}</dd></div></dl><footer>{actions(row)}</footer></article>)}</div><footer className="cf-table-footer"><span>{rows.length} customers · page {current} of {pages}</span><div><FilterChoice label="Customers per page" value={size} options={['1','10','25']} onChange={value=>{setSize(value);setPage(1);}}/><Button variant="ghost" size="icon" aria-label="Previous customer page" disabled={current===1} onClick={()=>setPage(current-1)}><ChevronLeft size={16}/></Button><Button variant="ghost" size="icon" aria-label="Next customer page" disabled={current===pages} onClick={()=>setPage(current+1)}><ChevronRight size={16}/></Button></div></footer></>}{operation&&<Workflow operation={operation} container={container} close={()=>setOperation(null)} onSuccess={fetchLiveCustomers} liveCustomers={liveCustomers}/>}{selected&&<CustomerDetails customer={selected} container={container} close={()=>setDetail(null)} openRecord={openRecord}/>}</section>;
 }
 export function FinancialReferences({container,empty=false}: {container?:HTMLElement|null|undefined;empty?:boolean}) {
  const {references,role}=useMockSession();const [tab,setTab]=useState('Financial years'),[query,setQuery]=useState(''),[status,setStatus]=useState('All rates'),[operation,setOperation]=useState<Operation|null>(null);
