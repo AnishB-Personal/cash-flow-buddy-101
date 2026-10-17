@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ArrowUpRight, X, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import {
 } from '@/data/orders';
 import { useMockSession } from './session';
 import { FormSection, FieldError } from './demo-controls';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, type CustomerDTO, type ManagedUserDTO } from '@/lib/api-client';
 
 export type OrderOperation = {
   action: OrderAction;
@@ -49,10 +49,58 @@ export function OrderWorkflowModal({
   const [discard, setDiscard] = useState(false);
   const [dirty, setDirty] = useState(false);
 
+  const [liveCustomers, setLiveCustomers] = useState<CustomerDTO[]>([]);
+  const [liveUsers, setLiveUsers] = useState<ManagedUserDTO[]>([]);
+
+  useEffect(() => {
+    if (!isLive) return;
+    let active = true;
+    Promise.all([
+      apiClient.getCustomers(),
+      apiClient.getUsers(),
+    ])
+      .then(([custs, users]) => {
+        if (!active) return;
+        setLiveCustomers(custs);
+        setLiveUsers(users);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isLive]);
+
+  const salesUsers = isLive ? liveUsers.filter(u => u.is_active && u.role === 'sales') : [];
+
+  const effectiveCustomers = (isLive && liveCustomers.length > 0)
+    ? liveCustomers.map(c => ({
+        id: c.id,
+        billing_name: c.billing_name,
+        gst_number: c.gst_number || '',
+        billing_address: c.billing_address || '',
+        state: c.state || '',
+        contact_person: c.contact_person || '',
+        phone: c.phone_1 || '',
+        email: c.email || '',
+        total_orders: c.total_orders || 0,
+        lifetime_billed: Number(c.total_billed || 0),
+        outstanding_balance: Number(c.total_outstanding || 0),
+      }))
+    : references.customers;
+
+  const effectiveReferences = {
+    ...references,
+    customers: effectiveCustomers,
+  };
+
+  const isDirectInvoice = operation.action === 'order-create' && input['order_type'] === 'RECURRING';
+  const allowed = isDirectInvoice
+    ? (activeRole === 'admin' || activeRole === 'finance')
+    : orderPermitted(activeRole, operation.action);
+
   const submitting = useRef(false);
   const origin = useRef({ revision, fy, role: activeRole });
   const trigger = useRef<HTMLElement | null>(typeof document === 'undefined' ? null : (document.activeElement as HTMLElement));
-  const allowed = orderPermitted(activeRole, operation.action);
 
   function requestClose() {
     if (pending) return;
@@ -71,7 +119,7 @@ export function OrderWorkflowModal({
       const invoiceList = (isLive && operation.record)
         ? [operation.record, ...demo.invoices.filter(i => String(i.id) !== operation.target)]
         : demo.invoices;
-      const rev = reviewOrder(operation.action, operation.target, parsed.data, activeRole, invoiceList, references, fy);
+      const rev = reviewOrder(operation.action, operation.target, parsed.data, activeRole, invoiceList, effectiveReferences, fy);
       setReview(rev);
       setStep('review');
       setError('');
@@ -90,25 +138,56 @@ export function OrderWorkflowModal({
       if (isLive) {
         const id = Number(operation.target);
         if (operation.action === 'order-create') {
-          await apiClient.createOrder({
-            fy_code: input['fy_code'] || fy,
-            po_number: input['po_number'] ? input['po_number'].trim() : null,
-            po_date: input['po_date'] ?? new Date().toISOString().slice(0, 10),
-            customer_id: Number(input['customer_id']),
-            executive_id: input['executive_id'] ? Number(input['executive_id']) : null,
-            order_type: input['order_type'] || 'PO',
-            currency: input['currency'] || 'INR',
-            exchange_rate: Number(input['exchange_rate'] || '1.0'),
-            remarks: input['remarks'] || null,
-            items: [
-              {
-                item_description: input['line_item_description'] || 'Standard Line Item',
-                quantity: Number(input['quantity'] || '1.0'),
-                unit_price: Number(input['unit_price'] || '0.0'),
-                tax_rate: Number(input['tax_rate'] || '0.18'),
-              },
-            ],
-          });
+          if (input['order_type'] === 'RECURRING') {
+            const qty = Number(input['quantity'] || '1.0');
+            const unitPrice = Number(input['unit_price'] || '0.0');
+            const taxRate = Number(input['tax_rate'] || '0.18');
+            const itemDesc = input['line_item_description'] || 'Recurring Services Retainer';
+            const invNum = (input['po_number'] && input['po_number'].trim() && input['po_number'].trim() !== 'Recurring / Direct Invoice')
+              ? input['po_number'].trim()
+              : `INV-REC-${Date.now().toString().slice(-6)}`;
+
+            await apiClient.createInvoice({
+              fy_code: input['fy_code'] || fy,
+              invoice_number: invNum,
+              invoice_date: input['po_date'] ?? new Date().toISOString().slice(0, 10),
+              due_date: input['due_date'] ? input['due_date'].trim() : null,
+              customer_id: Number(input['customer_id']),
+              executive_id: input['executive_id'] ? Number(input['executive_id']) : null,
+              order_type: 'RECURRING',
+              currency: input['currency'] || 'INR',
+              exchange_rate: Number(input['exchange_rate'] || '1.0'),
+              remarks: input['remarks'] || null,
+              items: [
+                {
+                  description: itemDesc,
+                  quantity: qty,
+                  unit_price: unitPrice,
+                  tax_rate: taxRate,
+                },
+              ],
+            });
+          } else {
+            await apiClient.createOrder({
+              fy_code: input['fy_code'] || fy,
+              po_number: input['po_number'] ? input['po_number'].trim() : null,
+              po_date: input['po_date'] ?? new Date().toISOString().slice(0, 10),
+              customer_id: Number(input['customer_id']),
+              executive_id: input['executive_id'] ? Number(input['executive_id']) : null,
+              order_type: 'PO',
+              currency: input['currency'] || 'INR',
+              exchange_rate: Number(input['exchange_rate'] || '1.0'),
+              remarks: input['remarks'] || null,
+              items: [
+                {
+                  item_description: input['line_item_description'] || 'Standard Line Item',
+                  quantity: Number(input['quantity'] || '1.0'),
+                  unit_price: Number(input['unit_price'] || '0.0'),
+                  tax_rate: Number(input['tax_rate'] || '0.18'),
+                },
+              ],
+            });
+          }
         } else if (operation.action === 'order-edit') {
           if (isIssued) {
             await apiClient.updateInvoiceMetadata(id, {
@@ -202,7 +281,7 @@ export function OrderWorkflowModal({
 
             {!allowed ? (
               <p role="alert" className="cf-field-error">
-                This role cannot perform this action. Permissions require {operation.action === 'order-create' ? 'finance, admin, or sales' : 'finance or admin'}.
+                This role cannot perform this action. Permissions require {operation.action === 'order-create' && input['order_type'] !== 'RECURRING' ? 'finance, admin, or sales' : 'finance or admin'}.
               </p>
             ) : step === 'form' ? (
               <form
@@ -219,13 +298,13 @@ export function OrderWorkflowModal({
                           <label htmlFor="ord-customer">Customer</label>
                           <select
                             id="ord-customer"
-                            value={input['customer_id'] ?? '1'}
+                            value={input['customer_id'] ?? (effectiveCustomers[0]?.id ? String(effectiveCustomers[0].id) : '1')}
                             onChange={e => {
                               setInput({ ...input, customer_id: e.target.value });
                               setDirty(true);
                             }}
                           >
-                            {references.customers.map(c => (
+                            {effectiveCustomers.map(c => (
                               <option key={c.id} value={String(c.id)}>
                                 {c.billing_name}
                               </option>
@@ -308,15 +387,25 @@ export function OrderWorkflowModal({
                           <label htmlFor="ord-executive">Sales executive</label>
                           <select
                             id="ord-executive"
-                            value={input['executive_id'] ?? '3'}
+                            value={input['executive_id'] ?? (salesUsers[0]?.id ? String(salesUsers[0].id) : '3')}
                             onChange={e => {
                               setInput({ ...input, executive_id: e.target.value });
                               setDirty(true);
                             }}
                           >
-                            <option value="3">Neha Rao</option>
-                            <option value="4">Kavya Nair</option>
-                            <option value="5">Arjun Mehta</option>
+                            {isLive && salesUsers.length > 0
+                              ? salesUsers.map(u => (
+                                  <option key={u.id} value={String(u.id)}>
+                                    {u.full_name || u.username}
+                                  </option>
+                                ))
+                              : (
+                                  <>
+                                    <option value="3">Neha Rao</option>
+                                    <option value="4">Kavya Nair</option>
+                                    <option value="5">Arjun Mehta</option>
+                                  </>
+                                )}
                           </select>
                         </div>
 
@@ -591,9 +680,19 @@ export function OrderWorkflowModal({
                               setDirty(true);
                             }}
                           >
-                            <option value="3">Neha Rao</option>
-                            <option value="4">Kavya Nair</option>
-                            <option value="5">Arjun Mehta</option>
+                            {isLive && salesUsers.length > 0
+                              ? salesUsers.map(u => (
+                                  <option key={u.id} value={String(u.id)}>
+                                    {u.full_name || u.username}
+                                  </option>
+                                ))
+                              : (
+                                  <>
+                                    <option value="3">Neha Rao</option>
+                                    <option value="4">Kavya Nair</option>
+                                    <option value="5">Arjun Mehta</option>
+                                  </>
+                                )}
                           </select>
                         </div>
                       )}
@@ -682,10 +781,10 @@ export function OrderWorkflowModal({
                       <>
                         <div>
                           <dt>Customer</dt>
-                          <dd>{references.customers.find(c => String(c.id) === input['customer_id'])?.billing_name || 'Acme'}</dd>
+                          <dd>{effectiveCustomers.find(c => String(c.id) === input['customer_id'])?.billing_name || 'Acme'}</dd>
                         </div>
                         <div>
-                          <dt>Order Value</dt>
+                          <dt>{input['order_type'] === 'RECURRING' ? 'Invoice Value' : 'Order Value'}</dt>
                           <dd>{exactMoney(previewTotal)}</dd>
                         </div>
                       </>

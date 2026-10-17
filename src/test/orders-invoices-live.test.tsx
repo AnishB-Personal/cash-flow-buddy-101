@@ -186,6 +186,95 @@ describe('Stage 4C.3: LIVE Orders & Invoices Integration Tests', () => {
       });
     });
 
+    it('dispatches apiClient.createInvoice in LIVE mode when order_type is RECURRING (CF4C3-03)', async () => {
+      apiClient.setToken('finance-token', {
+        id: 2,
+        username: 'sandbox_finance',
+        role: 'finance',
+        full_name: 'Finance Lead',
+      });
+
+      const liveCustomers = [
+        { id: 99, customer_name: 'Live Customer Inc', billing_name: 'Live Customer Inc', gstin: '27ABCDE1234F1Z5' },
+      ];
+      const liveUsers = [
+        { id: 4, full_name: 'Live Sales Exec', role: 'sales' },
+      ];
+
+      const getCustSpy = vi.spyOn(apiClient, 'getCustomers').mockResolvedValue(liveCustomers as any);
+      const getUsersSpy = vi.spyOn(apiClient, 'getUsers').mockResolvedValue(liveUsers as any);
+      const createInvoiceSpy = vi.spyOn(apiClient, 'createInvoice').mockResolvedValue(syntheticInvoice as any);
+      const closeSpy = vi.fn();
+
+      const op: OrderOperation = {
+        action: 'order-create',
+        target: '',
+        label: 'Create Purchase Order',
+        values: {
+          customer_id: '99',
+          order_type: 'RECURRING',
+          po_number: 'INV-REC-101',
+          po_date: '2026-06-15',
+          fy_code: 'FY 2026-27',
+          executive_id: '4',
+          currency: 'INR',
+          exchange_rate: '1.0',
+          line_item_description: 'Monthly Maintenance Retainer',
+          quantity: '1',
+          unit_price: '50000',
+          tax_rate: '0.18',
+          remarks: 'Direct recurring invoice',
+        },
+        example: orderCreateExample,
+      };
+
+      render(
+        <MockSessionProvider>
+          <OrderWorkflowModal operation={op} close={closeSpy} />
+        </MockSessionProvider>
+      );
+
+      // Verify live customer and user fetching
+      await waitFor(() => {
+        expect(getCustSpy).toHaveBeenCalled();
+        expect(getUsersSpy).toHaveBeenCalled();
+      });
+
+      // 1. Submit form to review
+      const reviewBtn = screen.getByRole('button', { name: /Review changes/i });
+      fireEvent.click(reviewBtn);
+
+      // 2. Continue to confirmation
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Continue to confirmation/i })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Continue to confirmation/i }));
+
+      // 3. Confirm
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Confirm create purchase order/i })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Confirm create purchase order/i }));
+
+      await waitFor(() => {
+        expect(createInvoiceSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            customer_id: 99,
+            invoice_number: 'INV-REC-101',
+            invoice_date: '2026-06-15',
+            items: expect.arrayContaining([
+              expect.objectContaining({
+                description: 'Monthly Maintenance Retainer',
+                quantity: 1,
+                unit_price: 50000,
+                tax_rate: 0.18,
+              }),
+            ]),
+          })
+        );
+      });
+    });
+
     it('dispatches apiClient.convertOrder in LIVE mode for Admin role', async () => {
       apiClient.setToken('admin-token', {
         id: 1,

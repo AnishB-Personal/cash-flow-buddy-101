@@ -356,31 +356,48 @@ export function reviewOrder(
           tax_rate: rate,
           tax_amount: tax,
           total_amount: tot,
-          invoice_number: null,
-          invoice_date: null,
-          due_date: null,
+          invoice_number: (orderType === 'RECURRING'
+            ? (poNo === 'Recurring / Direct Invoice' ? `INV-${newId}` : poNo)
+            : null) as any,
+          invoice_date: (orderType === 'RECURRING' ? poDate : null) as any,
+          due_date: (orderType === 'RECURRING' ? calculateNet30DueDate(poDate) : null) as any,
           remarks: input['remarks'] || '',
           payment_status: 'PENDING',
           total_cash_paid: 0,
           total_tds_deducted: 0,
           total_paid: 0,
           outstanding_balance: tot,
-          computed_status: 'UNBILLED',
+          computed_status: orderType === 'RECURRING' ? 'PENDING' : 'UNBILLED',
           executive_name: execName,
           line_items: [lineItem],
           payments: [],
         };
 
-        after.push(newOrder);
-        impact.unbilledDelta = tot;
-        changes.push(
-          { field: 'po_number', label: 'PO number', previous: '—', current: poNo },
-          { field: 'customer', label: 'Customer', previous: '—', current: cust.billing_name },
-          { field: 'order_value', label: 'Order value', previous: '—', current: exactMoney(tot) },
-          { field: 'due_date', label: 'Due date', previous: '—', current: dateLabel(input['due_date'] || null) || '—' },
-          { field: 'status', label: 'Billing status', previous: '—', current: 'UNBILLED' }
-        );
-        message = `Verified order creation rehearsal. New unbilled order created (${poNo}). Issued receivables, settlements and reporting date remain unchanged.`;
+        if (orderType === 'RECURRING') {
+          after.push(newOrder);
+          impact.invoicedDelta = tot;
+          impact.outstandingDelta = tot;
+          impact.unbilledDelta = 0;
+          changes.push(
+            { field: 'invoice_number', label: 'Invoice number', previous: '—', current: String(newOrder.invoice_number || '—') },
+            { field: 'customer', label: 'Customer', previous: '—', current: cust.billing_name },
+            { field: 'invoice_value', label: 'Invoice value', previous: '—', current: exactMoney(tot) },
+            { field: 'due_date', label: 'Due date', previous: '—', current: dateLabel(newOrder.due_date) || '—' },
+            { field: 'status', label: 'Billing status', previous: '—', current: 'PENDING' }
+          );
+          message = `Verified direct invoice rehearsal. New commercial invoice issued (${newOrder.invoice_number}). Total invoiced and receivables increase by ${exactMoney(tot)}.`;
+        } else {
+          after.push(newOrder);
+          impact.unbilledDelta = tot;
+          changes.push(
+            { field: 'po_number', label: 'PO number', previous: '—', current: poNo },
+            { field: 'customer', label: 'Customer', previous: '—', current: cust.billing_name },
+            { field: 'order_value', label: 'Order value', previous: '—', current: exactMoney(tot) },
+            { field: 'due_date', label: 'Due date', previous: '—', current: dateLabel(input['due_date'] || null) || '—' },
+            { field: 'status', label: 'Billing status', previous: '—', current: 'UNBILLED' }
+          );
+          message = `Verified order creation rehearsal. New unbilled order created (${poNo}). Issued receivables, settlements and reporting date remain unchanged.`;
+        }
       }
       break;
     }
