@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ArrowUpRight, X, CheckCircle2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -627,7 +627,46 @@ export function PaymentCorrectionDrawer({
   const activeRole = (isLive && currentUser?.role) ? currentUser.role : role;
   const allowed = isLive ? (activeRole === 'admin' || activeRole === 'finance') : canPay(role);
 
-  const currentInvoice = demo.invoices.find(inv => inv.id === payment.invoice_id) ?? payment.invoice;
+  // Authoritative LIVE Invoice State
+  const [liveInvoice, setLiveInvoice] = useState<Invoice | null>(null);
+  const [liveInvoiceLoading, setLiveInvoiceLoading] = useState<boolean>(isLive);
+  const [liveInvoiceError, setLiveInvoiceError] = useState<string | null>(null);
+  const [liveInvoiceRetryTrigger, setLiveInvoiceRetryTrigger] = useState<number>(0);
+
+  useEffect(() => {
+    if (!isLive) {
+      setLiveInvoiceLoading(false);
+      setLiveInvoiceError(null);
+      return;
+    }
+    let active = true;
+    setLiveInvoiceLoading(true);
+    setLiveInvoiceError(null);
+
+    const fetchAuthoritativeInvoice = async () => {
+      try {
+        const res = await apiClient.getInvoice(payment.invoice_id);
+        if (!active) return;
+        const inv: Invoice = {
+          ...res.invoice,
+          outstanding_balance: Number(res.invoice.outstanding_balance ?? 0),
+          total_amount: Number(res.invoice.total_amount ?? 0),
+        };
+        setLiveInvoice(inv);
+        setLiveInvoiceLoading(false);
+      } catch (err: any) {
+        if (!active) return;
+        setLiveInvoiceLoading(false);
+        setLiveInvoiceError(err?.message || 'Failed to retrieve authoritative invoice details.');
+      }
+    };
+
+    void fetchAuthoritativeInvoice();
+    return () => { active = false; };
+  }, [isLive, payment.invoice_id, liveInvoiceRetryTrigger]);
+
+  const mockInvoice = demo.invoices.find(inv => inv.id === payment.invoice_id) ?? payment.invoice;
+  const currentInvoice = isLive ? (liveInvoice ?? payment.invoice) : mockInvoice;
   const presets = getPaymentPresets(currentInvoice);
 
   // Live Mode State
@@ -675,13 +714,27 @@ export function PaymentCorrectionDrawer({
   const repTds = Number(liveTds || 0);
   const repTotal = roundCurrency(repCash + repTds);
 
-  const invOutstanding = Number(currentInvoice.outstanding_balance || 0);
-  const liveResultingOutstanding = roundCurrency(invOutstanding + origTotal - repTotal);
-  const liveResultingStatus = liveResultingOutstanding <= 0 ? 'PAID' : (Number(currentInvoice.total_amount || 0) - liveResultingOutstanding > 0 ? 'PARTIAL' : 'PENDING');
-  const isLiveOverpaid = liveResultingOutstanding < 0;
+  // Authoritative invoice must be used for LIVE validation, NEVER mock invoices or placeholder zero balances
+  const invOutstanding = isLive
+    ? (liveInvoice ? Number(liveInvoice.outstanding_balance) : NaN)
+    : Number(mockInvoice.outstanding_balance || 0);
+  const invTotal = isLive
+    ? (liveInvoice ? Number(liveInvoice.total_amount) : NaN)
+    : Number(mockInvoice.total_amount || 0);
+
+  const liveResultingOutstanding = Number.isNaN(invOutstanding)
+    ? 0
+    : roundCurrency(invOutstanding + origTotal - repTotal);
+  const liveResultingStatus = liveResultingOutstanding <= 0
+    ? 'PAID'
+    : (!Number.isNaN(invTotal) && invTotal - liveResultingOutstanding > 0 ? 'PARTIAL' : 'PENDING');
+  const isLiveOverpaid = !Number.isNaN(invOutstanding) && liveResultingOutstanding < 0;
 
   function validateLive(): boolean {
     const errs: Record<string, string> = {};
+    if (isLive && (!liveInvoice || liveInvoiceLoading || liveInvoiceError)) {
+      errs['general'] = 'Authoritative invoice data must be loaded before submitting correction.';
+    }
     if (!liveReason || liveReason.trim().length < 5) {
       errs['reason'] = 'Correction reason is mandatory (minimum 5 characters for statutory audit log)';
     }
@@ -892,7 +945,23 @@ export function PaymentCorrectionDrawer({
               </p>
             ) : isLive ? (
               /* LIVE MODE 4-STEP ATOMIC CORRECTION */
-              liveStep === 'form' ? (
+              liveInvoiceLoading ? (
+                <div className="cf-table-loading py-12 text-center" role="status" aria-live="polite">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2" />
+                  <p className="text-muted-foreground text-sm font-medium">Loading authoritative invoice details…</p>
+                </div>
+              ) : liveInvoiceError ? (
+                <div className="cf-table-error py-8 text-center" role="alert" style={{ margin: '1.5rem 0' }}>
+                  <p className="font-semibold text-destructive mb-3">{liveInvoiceError}</p>
+                  <Button variant="outline" size="sm" onClick={() => setLiveInvoiceRetryTrigger(c => c + 1)}>
+                    Retry
+                  </Button>
+                </div>
+              ) : !liveInvoice ? (
+                <p role="alert" className="cf-field-error">
+                  Authoritative invoice details unavailable.
+                </p>
+              ) : liveStep === 'form' ? (
                 <form
                   onSubmit={e => {
                     e.preventDefault();
@@ -1134,7 +1203,7 @@ export function PaymentCorrectionDrawer({
                   )}
 
                   <div className="cf-demo-actions">
-                    <Button type="submit" disabled={isLiveOverpaid}>
+                    <Button type="submit" disabled={isLiveOverpaid || !liveInvoice}>
                       Review correction <ArrowUpRight size={16} />
                     </Button>
                   </div>
@@ -1194,7 +1263,7 @@ export function PaymentCorrectionDrawer({
                       Back
                     </Button>
                     <Button
-                      disabled={pending}
+                      disabled={pending || isLiveOverpaid || !liveInvoice}
                       onClick={() => {
                         if (liveStep === 'review') setLiveStep('confirm');
                         else void executeLiveCorrection();

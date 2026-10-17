@@ -77,6 +77,11 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
       role: 'admin',
       full_name: 'Admin User',
     });
+    vi.spyOn(apiClient, 'getInvoice').mockResolvedValue({
+      invoice: mockLiveInvoice,
+      payments: [],
+      items: [],
+    });
   });
 
   it('RecordPaymentDrawer: executes live settlement workflow Form -> Review -> Confirm -> Result', async () => {
@@ -171,7 +176,7 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
     );
 
     // Step 1: Form
-    expect(screen.getByText(/Atomic Accounting Correction \(PostgreSQL\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Atomic Accounting Correction \(PostgreSQL\)/i)).toBeInTheDocument();
     expect(screen.getByText('Form')).toHaveAttribute('aria-current', 'step');
 
     // Enter mandatory reason (min 5 chars)
@@ -251,7 +256,7 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
     );
 
     // Enter reason
-    const reasonInput = screen.getByLabelText(/Correction reason/i);
+    const reasonInput = await screen.findByLabelText(/Correction reason/i);
     fireEvent.change(reasonInput, { target: { value: 'Payment refunded to client' } });
 
     // Click "Full Reversal (₹0.00 replacement)"
@@ -292,6 +297,191 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
     await waitFor(() => {
       expect(screen.getByText(/Settlement fully reversed/i)).toBeInTheDocument();
     });
+  });
+
+  it('PaymentCorrectionDrawer: uses authoritative invoice balance and permits valid replacement settlement (CF4C4-04)', async () => {
+    const authoritativeInvoice: Invoice = {
+      id: 99,
+      fy_code: 'FY 2026-27',
+      order_type: 'PO',
+      po_number: 'PO-2026-099',
+      po_date: '2026-04-10',
+      customer_id: 1,
+      executive_id: 2,
+      customer_name: 'Regression Client',
+      customer_gstin: '29AAAAA0000A1Z5',
+      customer_address: 'Bangalore, India',
+      customer_state: 'Karnataka',
+      currency: 'INR',
+      exchange_rate: 1.0,
+      original_amount: 100000.0,
+      exclusive_amount: 100000.0,
+      tax_rate: 0.18,
+      tax_amount: 18000.0,
+      total_amount: 118000.0,
+      invoice_number: 'INV-2026-099',
+      invoice_date: '2026-04-12',
+      due_date: '2026-05-12',
+      remarks: 'Regression PO',
+      payment_status: 'PARTIAL',
+      total_cash_paid: 100000.0,
+      total_tds_deducted: 0.0,
+      total_paid: 100000.0,
+      outstanding_balance: 18000.0,
+      computed_status: 'PARTIAL',
+      executive_name: 'Neha Rao',
+      line_items: [],
+      payments: [],
+    } as unknown as Invoice;
+
+    const regressionPayment: PaymentItem = {
+      id: 88,
+      invoice_id: 99,
+      payment_amount: 100000.0,
+      tds_amount: 0.0,
+      tds_section: null,
+      payment_date: '2026-04-15',
+      payment_mode: 'NEFT',
+      remittance_number: 'UTR-REGRESSION-88',
+      notes: 'Original partial payment of 100000',
+      invoice: {
+        id: 99,
+        invoice_number: 'INV-2026-099',
+        customer_name: 'Regression Client',
+        outstanding_balance: 0, // Placeholder zero balance that MUST NOT contaminate LIVE calculations
+      } as any,
+      invoice_number: 'INV-2026-099',
+      customer_name: 'Regression Client',
+      net_settled: 100000.0,
+    };
+
+    const getInvoiceSpy = vi.spyOn(apiClient, 'getInvoice').mockResolvedValueOnce({
+      invoice: authoritativeInvoice,
+      payments: [],
+      items: [],
+    });
+
+    const correctPaymentSpy = vi.spyOn(apiClient, 'correctPayment').mockResolvedValueOnce({
+      success: true,
+      reversal_id: 880,
+      replacement_id: 881,
+      message: 'Payment #88 corrected successfully',
+      invoice_summary: {
+        outstanding_balance: '16000.00',
+        total_paid: '102000.00',
+        total_cash_paid: '102000.00',
+        total_tds_deducted: '0.00',
+        computed_status: 'PARTIAL',
+      },
+    });
+
+    render(
+      <MockSessionProvider>
+        <PaymentCorrectionDrawer payment={regressionPayment} close={vi.fn()} />
+      </MockSessionProvider>
+    );
+
+    // Wait for authoritative invoice data to load
+    expect(await screen.findByText(/Atomic Accounting Correction \(PostgreSQL\)/i)).toBeInTheDocument();
+    expect(getInvoiceSpy).toHaveBeenCalledWith(99);
+
+    // Enter mandatory reason
+    const reasonInput = screen.getByLabelText(/Correction reason/i);
+    fireEvent.change(reasonInput, { target: { value: 'Increasing allocation per revised invoice reconciliation' } });
+
+    // Set corrected cash amount to 102,000 (replacement net: 102,000)
+    // Formula: liveResultingOutstanding = 18,000 (authoritative outstanding) + 100,000 (orig) - 102,000 (rep) = 16,000
+    const cashInput = screen.getByLabelText(/Corrected cash amount/i);
+    fireEvent.change(cashInput, { target: { value: '102000' } });
+
+    // Verify preview calculation: replacement total ₹1,02,000.00 and resulting outstanding ₹16,000.00
+    expect(screen.getByText('₹1,02,000.00')).toBeInTheDocument();
+    expect(screen.getByText('₹16,000.00')).toBeInTheDocument();
+
+    // Verify "Review correction" is enabled and not blocked by false overpayment
+    const reviewBtn = screen.getByRole('button', { name: /Review correction/i });
+    expect(reviewBtn).not.toBeDisabled();
+    fireEvent.click(reviewBtn);
+
+    // Verify Review step reflects ₹16,000.00 net balance adjustment
+    await waitFor(() => {
+      expect(screen.getByText('Review')).toHaveAttribute('aria-current', 'step');
+      expect(screen.getAllByText(/-₹1,00,000\.00/i)[0]).toBeInTheDocument();
+      expect(screen.getAllByText(/\+₹1,02,000\.00/i)[0]).toBeInTheDocument();
+      expect(screen.getAllByText('₹16,000.00').length).toBeGreaterThan(0);
+    });
+
+    // Continue to Confirm
+    const continueBtn = screen.getByRole('button', { name: /Continue to confirmation/i });
+    expect(continueBtn).not.toBeDisabled();
+    fireEvent.click(continueBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Confirm')).toHaveAttribute('aria-current', 'step');
+    });
+
+    // Submit confirmation
+    const confirmBtn = screen.getByRole('button', { name: /Confirm correction/i });
+    expect(confirmBtn).not.toBeDisabled();
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(correctPaymentSpy).toHaveBeenCalledWith(
+        88,
+        expect.objectContaining({
+          corrected_payment_amount: 102000,
+          reason: 'Increasing allocation per revised invoice reconciliation',
+        })
+      );
+      expect(screen.getByText('Result')).toHaveAttribute('aria-current', 'step');
+      expect(screen.getByText(/Payment #88 Corrected Successfully/i)).toBeInTheDocument();
+    });
+  });
+
+  it('PaymentCorrectionDrawer: renders loading and error states and prevents submission until authoritative invoice is loaded', async () => {
+    let resolveInvoice: (value: any) => void;
+    let rejectInvoice: (reason?: any) => void;
+
+    // 1. Loading state
+    vi.spyOn(apiClient, 'getInvoice').mockImplementation(() => {
+      return new Promise((resolve, reject) => {
+        resolveInvoice = resolve;
+        rejectInvoice = reject;
+      });
+    });
+
+    render(
+      <MockSessionProvider>
+        <PaymentCorrectionDrawer payment={mockPaymentItem} close={vi.fn()} />
+      </MockSessionProvider>
+    );
+
+    // Assert loading spinner / status indicator
+    expect(screen.getByRole('status')).toHaveTextContent(/Loading authoritative invoice details…/i);
+    expect(screen.queryByLabelText(/Correction reason/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Review correction/i })).not.toBeInTheDocument();
+
+    // 2. Reject and assert error state
+    rejectInvoice!(new Error('Failed to load authoritative invoice: 503 Service Unavailable'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/503 Service Unavailable/i);
+    });
+    expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Review correction/i })).not.toBeInTheDocument();
+
+    // 3. Retry and resolve successfully
+    vi.spyOn(apiClient, 'getInvoice').mockResolvedValueOnce({
+      invoice: mockLiveInvoice,
+      payments: [],
+      items: [],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Retry/i }));
+
+    // Assert form renders after successful retry
+    expect(await screen.findByLabelText(/Correction reason/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Review correction/i })).toBeInTheDocument();
   });
 
   it('PaymentCorrectionDrawer: preserves Phase 3 simulated deletion in MOCK mode', () => {
