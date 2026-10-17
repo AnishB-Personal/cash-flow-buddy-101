@@ -40,7 +40,16 @@ export function OrderWorkflowModal({
   const isLive = apiClient.getMode() === 'live';
   const currentUser = apiClient.getCurrentUser();
   const activeRole = (isLive && currentUser?.role) ? currentUser.role : role;
-  const [input, setInput] = useState<OrderInput>(operation.values);
+  const [input, setInput] = useState<OrderInput>(() => {
+    if (isLive && operation.action === 'order-create') {
+      return {
+        ...operation.values,
+        customer_id: '',
+        executive_id: '',
+      };
+    }
+    return operation.values;
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [step, setStep] = useState<'form' | 'review' | 'confirm' | 'result'>('form');
@@ -49,12 +58,20 @@ export function OrderWorkflowModal({
   const [discard, setDiscard] = useState(false);
   const [dirty, setDirty] = useState(false);
 
+  const needsLiveRefs = isLive && (operation.action === 'order-create' || operation.action === 'order-edit');
+  const [loadingLiveRefs, setLoadingLiveRefs] = useState<boolean>(needsLiveRefs);
+  const [liveRefsError, setLiveRefsError] = useState<string>('');
   const [liveCustomers, setLiveCustomers] = useState<CustomerDTO[]>([]);
   const [liveUsers, setLiveUsers] = useState<ManagedUserDTO[]>([]);
 
   useEffect(() => {
-    if (!isLive) return;
+    if (!needsLiveRefs) {
+      setLoadingLiveRefs(false);
+      return;
+    }
     let active = true;
+    setLoadingLiveRefs(true);
+    setLiveRefsError('');
     Promise.all([
       apiClient.getCustomers(),
       apiClient.getUsers(),
@@ -63,16 +80,37 @@ export function OrderWorkflowModal({
         if (!active) return;
         setLiveCustomers(custs);
         setLiveUsers(users);
+        setLoadingLiveRefs(false);
+
+        if (operation.action === 'order-create') {
+          setInput(prev => {
+            const next = { ...prev };
+            const firstCust = custs[0];
+            if (!next['customer_id'] && firstCust) {
+              next['customer_id'] = String(firstCust.id);
+            }
+            const activeSales = users.filter(u => u.is_active && u.role === 'sales');
+            const firstSales = activeSales[0];
+            if (!next['executive_id'] && firstSales) {
+              next['executive_id'] = String(firstSales.id);
+            }
+            return next;
+          });
+        }
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (!active) return;
+        setLiveRefsError(err instanceof Error ? err.message : 'Failed to load live references');
+        setLoadingLiveRefs(false);
+      });
     return () => {
       active = false;
     };
-  }, [isLive]);
+  }, [isLive, operation.action]);
 
   const salesUsers = isLive ? liveUsers.filter(u => u.is_active && u.role === 'sales') : [];
 
-  const effectiveCustomers = (isLive && liveCustomers.length > 0)
+  const effectiveCustomers = isLive
     ? liveCustomers.map(c => ({
         id: c.id,
         billing_name: c.billing_name,
@@ -109,6 +147,43 @@ export function OrderWorkflowModal({
   }
 
   function prepare() {
+    if (needsLiveRefs) {
+      if (loadingLiveRefs) {
+        setError('Loading live customer and user references. Please wait.');
+        return;
+      }
+      if (liveRefsError) {
+        setError(`Cannot proceed: ${liveRefsError}`);
+        return;
+      }
+      if (operation.action === 'order-create') {
+        if (liveCustomers.length === 0) {
+          setError('No active customers available in the backend.');
+          return;
+        }
+        if (!input['customer_id'] || !liveCustomers.some(c => String(c.id) === String(input['customer_id']))) {
+          setErrors(prev => ({ ...prev, customer_id: 'Please select a valid customer from the backend.' }));
+          setError('Selected customer is not a valid live customer.');
+          return;
+        }
+        if (input['executive_id'] && !salesUsers.some(u => String(u.id) === String(input['executive_id']))) {
+          setErrors(prev => ({ ...prev, executive_id: 'Selected executive is not a valid active sales user.' }));
+          setError('Selected sales executive is not a valid active sales user.');
+          return;
+        }
+      }
+      if (operation.action === 'order-edit') {
+        if (input['customer_id'] && !liveCustomers.some(c => String(c.id) === String(input['customer_id']))) {
+          setError('Selected customer is not a valid live customer.');
+          return;
+        }
+        if (input['executive_id'] && !salesUsers.some(u => String(u.id) === String(input['executive_id']))) {
+          setError('Selected sales executive is not a valid active sales user.');
+          return;
+        }
+      }
+    }
+
     const parsed = orderSchema(operation.action).safeParse(input);
     if (!parsed.success) {
       setErrors(Object.fromEntries(parsed.error.issues.map(issue => [String(issue.path[0]), issue.message])));
@@ -138,6 +213,12 @@ export function OrderWorkflowModal({
       if (isLive) {
         const id = Number(operation.target);
         if (operation.action === 'order-create') {
+          if (!input['customer_id'] || !liveCustomers.some(c => String(c.id) === String(input['customer_id']))) {
+            throw new Error('Selected customer is not a valid live customer record.');
+          }
+          if (input['executive_id'] && !salesUsers.some(u => String(u.id) === String(input['executive_id']))) {
+            throw new Error('Selected sales executive is not a valid active sales user.');
+          }
           if (input['order_type'] === 'RECURRING') {
             const qty = Number(input['quantity'] || '1.0');
             const unitPrice = Number(input['unit_price'] || '0.0');
@@ -189,6 +270,12 @@ export function OrderWorkflowModal({
             });
           }
         } else if (operation.action === 'order-edit') {
+          if (input['customer_id'] && !liveCustomers.some(c => c.id === Number(input['customer_id']))) {
+            throw new Error('Selected customer is not a valid live customer record.');
+          }
+          if (input['executive_id'] && !salesUsers.some(u => u.id === Number(input['executive_id']))) {
+            throw new Error('Selected sales executive is not a valid active sales user.');
+          }
           if (isIssued) {
             await apiClient.updateInvoiceMetadata(id, {
               remarks: input['remarks'] || undefined,
@@ -292,23 +379,58 @@ export function OrderWorkflowModal({
               >
                 {operation.action === 'order-create' && (
                   <>
+                    {isLive && loadingLiveRefs && (
+                      <p role="status" className="cf-muted" style={{ padding: '8px 12px', background: 'var(--muted)', borderRadius: 6, marginBottom: 12 }}>
+                        Loading live customer and user references…
+                      </p>
+                    )}
+                    {isLive && Boolean(liveRefsError) && (
+                      <p role="alert" className="cf-field-error" style={{ marginBottom: 12 }}>
+                        Failed to load live backend records: {liveRefsError}
+                      </p>
+                    )}
+                    {isLive && !loadingLiveRefs && !liveRefsError && liveCustomers.length === 0 && (
+                      <p role="alert" className="cf-field-error" style={{ marginBottom: 12 }}>
+                        No active customers found in backend. Please create a customer first.
+                      </p>
+                    )}
                     <FormSection title="Order classification & customer">
                       <div className="cf-reference-fields">
                         <div>
                           <label htmlFor="ord-customer">Customer</label>
                           <select
                             id="ord-customer"
-                            value={input['customer_id'] ?? (effectiveCustomers[0]?.id ? String(effectiveCustomers[0].id) : '1')}
+                            disabled={isLive && (loadingLiveRefs || liveCustomers.length === 0)}
+                            value={input['customer_id'] ?? ''}
                             onChange={e => {
                               setInput({ ...input, customer_id: e.target.value });
                               setDirty(true);
                             }}
                           >
-                            {effectiveCustomers.map(c => (
-                              <option key={c.id} value={String(c.id)}>
-                                {c.billing_name}
-                              </option>
-                            ))}
+                            {isLive ? (
+                              loadingLiveRefs ? (
+                                <option value="" disabled>Loading live customers…</option>
+                              ) : liveRefsError ? (
+                                <option value="" disabled>Failed to load live customers</option>
+                              ) : liveCustomers.length === 0 ? (
+                                <option value="" disabled>No active live customers available</option>
+                              ) : (
+                                <>
+                                  {!input['customer_id'] && <option value="" disabled>Select a live customer…</option>}
+                                  {liveCustomers.map(c => (
+                                    <option key={c.id} value={String(c.id)}>
+                                      {c.billing_name}
+                                    </option>
+                                  ))}
+                                </>
+                              )
+                            ) : (
+                              effectiveCustomers.map(c => (
+                                <option key={c.id} value={String(c.id)}>
+                                  {c.billing_name}
+                                </option>
+                              ))
+                            )}
                           </select>
                           <FieldError id="error-customer_id" message={errors['customer_id']} />
                         </div>
@@ -387,25 +509,37 @@ export function OrderWorkflowModal({
                           <label htmlFor="ord-executive">Sales executive</label>
                           <select
                             id="ord-executive"
-                            value={input['executive_id'] ?? (salesUsers[0]?.id ? String(salesUsers[0].id) : '3')}
+                            disabled={isLive && (loadingLiveRefs || Boolean(liveRefsError))}
+                            value={input['executive_id'] ?? ''}
                             onChange={e => {
                               setInput({ ...input, executive_id: e.target.value });
                               setDirty(true);
                             }}
                           >
-                            {isLive && salesUsers.length > 0
-                              ? salesUsers.map(u => (
-                                  <option key={u.id} value={String(u.id)}>
-                                    {u.full_name || u.username}
-                                  </option>
-                                ))
-                              : (
-                                  <>
-                                    <option value="3">Neha Rao</option>
-                                    <option value="4">Kavya Nair</option>
-                                    <option value="5">Arjun Mehta</option>
-                                  </>
-                                )}
+                            {isLive ? (
+                              loadingLiveRefs ? (
+                                <option value="" disabled>Loading live sales executives…</option>
+                              ) : liveRefsError ? (
+                                <option value="" disabled>Failed to load sales executives</option>
+                              ) : salesUsers.length === 0 ? (
+                                <option value="">No sales executives available</option>
+                              ) : (
+                                <>
+                                  <option value="">Unassigned</option>
+                                  {salesUsers.map(u => (
+                                    <option key={u.id} value={String(u.id)}>
+                                      {u.full_name || u.username}
+                                    </option>
+                                  ))}
+                                </>
+                              )
+                            ) : (
+                              <>
+                                <option value="3">Neha Rao</option>
+                                <option value="4">Kavya Nair</option>
+                                <option value="5">Arjun Mehta</option>
+                              </>
+                            )}
                           </select>
                         </div>
 
@@ -674,25 +808,37 @@ export function OrderWorkflowModal({
                           <label htmlFor="edit-executive">Account executive</label>
                           <select
                             id="edit-executive"
-                            value={input['executive_id'] ?? String(rec.executive_id ?? '3')}
+                            disabled={isLive && (loadingLiveRefs || Boolean(liveRefsError))}
+                            value={input['executive_id'] ?? (isLive ? (rec.executive_id ? String(rec.executive_id) : '') : String(rec.executive_id ?? '3'))}
                             onChange={e => {
                               setInput({ ...input, executive_id: e.target.value });
                               setDirty(true);
                             }}
                           >
-                            {isLive && salesUsers.length > 0
-                              ? salesUsers.map(u => (
-                                  <option key={u.id} value={String(u.id)}>
-                                    {u.full_name || u.username}
-                                  </option>
-                                ))
-                              : (
-                                  <>
-                                    <option value="3">Neha Rao</option>
-                                    <option value="4">Kavya Nair</option>
-                                    <option value="5">Arjun Mehta</option>
-                                  </>
-                                )}
+                            {isLive ? (
+                              loadingLiveRefs ? (
+                                <option value="" disabled>Loading live sales executives…</option>
+                              ) : liveRefsError ? (
+                                <option value="" disabled>Failed to load sales executives</option>
+                              ) : salesUsers.length === 0 ? (
+                                <option value="">No sales executives available</option>
+                              ) : (
+                                <>
+                                  <option value="">Unassigned</option>
+                                  {salesUsers.map(u => (
+                                    <option key={u.id} value={String(u.id)}>
+                                      {u.full_name || u.username}
+                                    </option>
+                                  ))}
+                                </>
+                              )
+                            ) : (
+                              <>
+                                <option value="3">Neha Rao</option>
+                                <option value="4">Kavya Nair</option>
+                                <option value="5">Arjun Mehta</option>
+                              </>
+                            )}
                           </select>
                         </div>
                       )}
@@ -739,8 +885,26 @@ export function OrderWorkflowModal({
                   <Button
                     type="button"
                     variant="outline"
+                    disabled={isLive && (loadingLiveRefs || liveCustomers.length === 0)}
                     onClick={() => {
-                      setInput(operation.example);
+                      if (isLive) {
+                        const example = { ...operation.example };
+                        const firstLiveCust = liveCustomers[0];
+                        if (firstLiveCust) {
+                          example['customer_id'] = String(firstLiveCust.id);
+                        } else {
+                          example['customer_id'] = '';
+                        }
+                        const firstLiveSales = salesUsers[0];
+                        if (firstLiveSales) {
+                          example['executive_id'] = String(firstLiveSales.id);
+                        } else {
+                          example['executive_id'] = '';
+                        }
+                        setInput(example);
+                      } else {
+                        setInput(operation.example);
+                      }
                       setDirty(true);
                       setErrors({});
                       setError('');
@@ -751,7 +915,10 @@ export function OrderWorkflowModal({
                 </div>
 
                 <div className="cf-demo-actions">
-                  <Button type="submit">
+                  <Button
+                    type="submit"
+                    disabled={needsLiveRefs && (loadingLiveRefs || Boolean(liveRefsError) || (operation.action === 'order-create' && liveCustomers.length === 0))}
+                  >
                     Review changes <ArrowUpRight size={16} />
                   </Button>
                 </div>
@@ -781,7 +948,10 @@ export function OrderWorkflowModal({
                       <>
                         <div>
                           <dt>Customer</dt>
-                          <dd>{effectiveCustomers.find(c => String(c.id) === input['customer_id'])?.billing_name || 'Acme'}</dd>
+                          <dd>
+                            {effectiveCustomers.find(c => String(c.id) === input['customer_id'])?.billing_name ||
+                              (isLive ? (input['customer_id'] ? `Customer #${input['customer_id']}` : 'None') : 'Acme')}
+                          </dd>
                         </div>
                         <div>
                           <dt>{input['order_type'] === 'RECURRING' ? 'Invoice Value' : 'Order Value'}</dt>

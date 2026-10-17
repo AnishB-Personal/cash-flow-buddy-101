@@ -127,6 +127,14 @@ describe('Stage 4C.3: LIVE Orders & Invoices Integration Tests', () => {
         full_name: 'Sales Rep',
       });
 
+      const liveCustomers = [
+        { id: 1, customer_name: 'Live Acme', billing_name: 'Live Acme Corp', gstin: '29ABCDE1234F1Z5' },
+      ];
+      const liveUsers = [
+        { id: 3, full_name: 'Sales Rep', role: 'sales', is_active: true },
+      ];
+      vi.spyOn(apiClient, 'getCustomers').mockResolvedValue(liveCustomers as any);
+      vi.spyOn(apiClient, 'getUsers').mockResolvedValue(liveUsers as any);
       const createOrderSpy = vi.spyOn(apiClient, 'createOrder').mockResolvedValue(syntheticInvoice);
       const closeSpy = vi.fn();
 
@@ -157,6 +165,11 @@ describe('Stage 4C.3: LIVE Orders & Invoices Integration Tests', () => {
           <OrderWorkflowModal operation={op} close={closeSpy} />
         </MockSessionProvider>
       );
+
+      // Wait for references to resolve
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Review changes/i })).not.toBeDisabled();
+      });
 
       // 1. Submit form to review
       const reviewBtn = screen.getByRole('button', { name: /Review changes/i });
@@ -386,6 +399,424 @@ describe('Stage 4C.3: LIVE Orders & Invoices Integration Tests', () => {
         expect(cancelInvoiceSpy).toHaveBeenCalledWith(101, {
           reason: 'Client requested cancellation under revised scope',
         });
+      });
+    });
+  });
+
+  describe('CF4C3-03: LIVE Isolation & Failure Paths', () => {
+    it('handles reference loading state: disables buttons and shows loading placeholders without mock IDs', async () => {
+      apiClient.setToken('sales-token', {
+        id: 3,
+        username: 'sandbox_sales',
+        role: 'sales',
+        full_name: 'Sales Rep',
+      });
+
+      // Pending promises that do not immediately resolve
+      vi.spyOn(apiClient, 'getCustomers').mockReturnValue(new Promise(() => {}));
+      vi.spyOn(apiClient, 'getUsers').mockReturnValue(new Promise(() => {}));
+
+      const op: OrderOperation = {
+        action: 'order-create',
+        target: '',
+        label: 'Create Purchase Order',
+        values: {
+          customer_id: '1',
+          order_type: 'PO',
+          po_number: 'PO-LIVE-LOADING',
+          po_date: '2026-06-15',
+          fy_code: 'FY 2026-27',
+          executive_id: '3',
+          currency: 'INR',
+          exchange_rate: '1.0',
+          line_item_description: 'Loading State Test',
+          quantity: '1',
+          unit_price: '5000',
+          tax_rate: '0.18',
+        },
+        example: orderCreateExample,
+      };
+
+      render(
+        <MockSessionProvider>
+          <OrderWorkflowModal operation={op} close={vi.fn()} />
+        </MockSessionProvider>
+      );
+
+      // Loading banner is displayed
+      expect(screen.getByText(/Loading live customer and user references…/i)).toBeInTheDocument();
+
+      // Submit and example buttons are disabled
+      const reviewBtn = screen.getByRole('button', { name: /Review changes/i });
+      expect(reviewBtn).toBeDisabled();
+      const exampleBtn = screen.getByRole('button', { name: /Use verified example/i });
+      expect(exampleBtn).toBeDisabled();
+
+      // Dropdowns show loading placeholders and are disabled
+      const custSelect = screen.getByLabelText(/Customer/i) as HTMLSelectElement;
+      expect(custSelect).toBeDisabled();
+      expect(screen.getByText('Loading live customers…')).toBeInTheDocument();
+
+      const execSelect = screen.getByLabelText(/Sales executive/i) as HTMLSelectElement;
+      expect(execSelect).toBeDisabled();
+      expect(screen.getByText('Loading live sales executives…')).toBeInTheDocument();
+
+      // Mock options must NOT be rendered
+      expect(screen.queryByText('Acme Innovations Pvt Ltd')).not.toBeInTheDocument();
+      expect(screen.queryByText('Neha Rao')).not.toBeInTheDocument();
+    });
+
+    it('handles backend API errors explicitly and blocks submission', async () => {
+      apiClient.setToken('sales-token', {
+        id: 3,
+        username: 'sandbox_sales',
+        role: 'sales',
+        full_name: 'Sales Rep',
+      });
+
+      vi.spyOn(apiClient, 'getCustomers').mockRejectedValue(new Error('Network error: connection refused'));
+      vi.spyOn(apiClient, 'getUsers').mockResolvedValue([]);
+
+      const op: OrderOperation = {
+        action: 'order-create',
+        target: '',
+        label: 'Create Purchase Order',
+        values: {
+          customer_id: '1',
+          order_type: 'PO',
+          po_number: 'PO-LIVE-ERR',
+          po_date: '2026-06-15',
+          fy_code: 'FY 2026-27',
+          executive_id: '3',
+          currency: 'INR',
+          exchange_rate: '1.0',
+          line_item_description: 'Error State Test',
+          quantity: '1',
+          unit_price: '5000',
+          tax_rate: '0.18',
+        },
+        example: orderCreateExample,
+      };
+
+      render(
+        <MockSessionProvider>
+          <OrderWorkflowModal operation={op} close={vi.fn()} />
+        </MockSessionProvider>
+      );
+
+      // Error alert banner is displayed
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(/Failed to load live backend records: Network error/i);
+      });
+
+      // Submit button is disabled
+      const reviewBtn = screen.getByRole('button', { name: /Review changes/i });
+      expect(reviewBtn).toBeDisabled();
+
+      // Dropdown shows error option
+      expect(screen.getByText('Failed to load live customers')).toBeInTheDocument();
+      expect(screen.queryByText('Acme Innovations Pvt Ltd')).not.toBeInTheDocument();
+    });
+
+    it('handles empty backend results: displays notice and prevents order submission', async () => {
+      apiClient.setToken('sales-token', {
+        id: 3,
+        username: 'sandbox_sales',
+        role: 'sales',
+        full_name: 'Sales Rep',
+      });
+
+      vi.spyOn(apiClient, 'getCustomers').mockResolvedValue([]);
+      vi.spyOn(apiClient, 'getUsers').mockResolvedValue([]);
+
+      const op: OrderOperation = {
+        action: 'order-create',
+        target: '',
+        label: 'Create Purchase Order',
+        values: {
+          customer_id: '',
+          order_type: 'PO',
+          po_number: 'PO-LIVE-EMPTY',
+          po_date: '2026-06-15',
+          fy_code: 'FY 2026-27',
+          executive_id: '',
+          currency: 'INR',
+          exchange_rate: '1.0',
+          line_item_description: 'Empty Backend Test',
+          quantity: '1',
+          unit_price: '5000',
+          tax_rate: '0.18',
+        },
+        example: orderCreateExample,
+      };
+
+      render(
+        <MockSessionProvider>
+          <OrderWorkflowModal operation={op} close={vi.fn()} />
+        </MockSessionProvider>
+      );
+
+      // Notice for empty customers is displayed
+      await waitFor(() => {
+        expect(screen.getByText(/No active customers found in backend/i)).toBeInTheDocument();
+      });
+
+      // Dropdown indicates no live customers
+      expect(screen.getByText('No active live customers available')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Review changes/i })).toBeDisabled();
+
+      // Mock customers must NOT be used as fallback
+      expect(screen.queryByText('Acme Innovations Pvt Ltd')).not.toBeInTheDocument();
+    });
+
+    it('rejects unvalidated mock IDs and prevents submission in LIVE mode', async () => {
+      apiClient.setToken('sales-token', {
+        id: 3,
+        username: 'sandbox_sales',
+        role: 'sales',
+        full_name: 'Sales Rep',
+      });
+
+      // Live backend only has Customer 99 and Sales User 4
+      const liveCustomers = [
+        { id: 99, customer_name: 'Nexus Corp', billing_name: 'Nexus Corp', gstin: '29ABCDE9999F1Z5' },
+      ];
+      const liveUsers = [
+        { id: 4, full_name: 'Live Sales Rep', role: 'sales', is_active: true },
+      ];
+      vi.spyOn(apiClient, 'getCustomers').mockResolvedValue(liveCustomers as any);
+      vi.spyOn(apiClient, 'getUsers').mockResolvedValue(liveUsers as any);
+      const createOrderSpy = vi.spyOn(apiClient, 'createOrder').mockResolvedValue(syntheticInvoice);
+
+      const op: OrderOperation = {
+        action: 'order-create',
+        target: '',
+        label: 'Create Purchase Order',
+        values: {
+          customer_id: '1',
+          order_type: 'PO',
+          po_number: 'PO-LIVE-VERIFIED',
+          po_date: '2026-06-15',
+          fy_code: 'FY 2026-27',
+          executive_id: '3',
+          currency: 'INR',
+          exchange_rate: '1.0',
+          line_item_description: 'Live ID Test',
+          quantity: '1',
+          unit_price: '5000',
+          tax_rate: '0.18',
+          remarks: 'Verified remarks',
+        },
+        example: orderCreateExample,
+      };
+
+      render(
+        <MockSessionProvider>
+          <OrderWorkflowModal operation={op} close={vi.fn()} />
+        </MockSessionProvider>
+      );
+
+      // Wait for references to resolve
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Review changes/i })).not.toBeDisabled();
+      });
+
+      // In LIVE mode, customer_id should auto-populate with valid live customer 99
+      const custSelect = screen.getByLabelText(/Customer/i) as HTMLSelectElement;
+      expect(custSelect.value).toBe('99');
+      expect(screen.queryByText('Acme Innovations Pvt Ltd')).not.toBeInTheDocument();
+      expect(screen.getByText('Nexus Corp')).toBeInTheDocument();
+
+      // Executive should auto-populate with valid live sales user 4
+      const execSelect = screen.getByLabelText(/Sales executive/i) as HTMLSelectElement;
+      expect(execSelect.value).toBe('4');
+      expect(screen.queryByText('Neha Rao')).not.toBeInTheDocument();
+      expect(screen.getByText('Live Sales Rep')).toBeInTheDocument();
+
+      // Submit and verify it dispatches with valid live IDs 99 and 4
+      fireEvent.click(screen.getByRole('button', { name: /Review changes/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Continue to confirmation/i })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Continue to confirmation/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Confirm create purchase order/i })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Confirm create purchase order/i }));
+
+      await waitFor(() => {
+        expect(createOrderSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            customer_id: 99,
+            executive_id: 4,
+          })
+        );
+      });
+    });
+
+    it('blocks submission when an unverified/mock customer ID is submitted in LIVE mode', async () => {
+      apiClient.setToken('admin-token', {
+        id: 1,
+        username: 'sandbox_admin',
+        role: 'admin',
+        full_name: 'Admin User',
+      });
+
+      // Backend only has customer 99
+      vi.spyOn(apiClient, 'getCustomers').mockResolvedValue([
+        { id: 99, customer_name: 'Nexus Corp', billing_name: 'Nexus Corp', gstin: '29ABCDE9999F1Z5' },
+      ] as any);
+      vi.spyOn(apiClient, 'getUsers').mockResolvedValue([
+        { id: 4, full_name: 'Live Sales Rep', role: 'sales', is_active: true },
+      ] as any);
+      const updateOrderSpy = vi.spyOn(apiClient, 'updateOrder');
+
+      const op: OrderOperation = {
+        action: 'order-edit',
+        target: '101',
+        label: 'Edit Order',
+        values: {
+          customer_id: '999', // unverified customer ID
+          executive_id: '4',
+          po_number: 'PO-MOCK-CUST',
+          po_date: '2026-06-15',
+          line_item_description: 'Test Invalid Customer',
+          remarks: 'Testing customer rejection',
+        },
+        example: {},
+        record: syntheticInvoice,
+      };
+
+      render(
+        <MockSessionProvider>
+          <OrderWorkflowModal operation={op} close={vi.fn()} />
+        </MockSessionProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Review changes/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /Review changes/i }));
+
+      // Review should be blocked with explicit error alert
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(/Selected customer is not a valid live customer/i);
+      });
+      expect(updateOrderSpy).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button', { name: /Continue to confirmation/i })).not.toBeInTheDocument();
+    });
+
+    it('blocks submission when an unverified/mock executive ID is submitted in LIVE mode', async () => {
+      apiClient.setToken('admin-token', {
+        id: 1,
+        username: 'sandbox_admin',
+        role: 'admin',
+        full_name: 'Admin User',
+      });
+
+      // Backend only has customer 99 and sales user 4
+      vi.spyOn(apiClient, 'getCustomers').mockResolvedValue([
+        { id: 99, customer_name: 'Nexus Corp', billing_name: 'Nexus Corp', gstin: '29ABCDE9999F1Z5' },
+      ] as any);
+      vi.spyOn(apiClient, 'getUsers').mockResolvedValue([
+        { id: 4, full_name: 'Live Sales Rep', role: 'sales', is_active: true },
+      ] as any);
+      const updateOrderSpy = vi.spyOn(apiClient, 'updateOrder');
+
+      const op: OrderOperation = {
+        action: 'order-edit',
+        target: '101',
+        label: 'Edit Order',
+        values: {
+          customer_id: '99',
+          executive_id: '999', // unverified executive ID
+          po_number: 'PO-MOCK-EXEC',
+          po_date: '2026-06-15',
+          line_item_description: 'Test Invalid Executive',
+          remarks: 'Testing executive rejection',
+        },
+        example: {},
+        record: syntheticInvoice,
+      };
+
+      render(
+        <MockSessionProvider>
+          <OrderWorkflowModal operation={op} close={vi.fn()} />
+        </MockSessionProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Review changes/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /Review changes/i }));
+
+      // Review should be blocked with explicit error alert
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(/Selected sales executive is not a valid active sales user/i);
+      });
+      expect(updateOrderSpy).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button', { name: /Continue to confirmation/i })).not.toBeInTheDocument();
+    });
+
+    it('preserves MOCK mode unchanged: uses mock session references and allows full rehearsal', async () => {
+      // Switch apiClient to mock mode via configure
+      apiClient.configure({ mode: 'mock' });
+      expect(apiClient.getMode()).toBe('mock');
+
+      const op: OrderOperation = {
+        action: 'order-create',
+        target: '',
+        label: 'Create Purchase Order',
+        values: {
+          customer_id: '1',
+          order_type: 'PO',
+          po_number: 'PO-2026-DEMO-001',
+          po_date: '2026-04-15',
+          fy_code: 'FY 2026-27',
+          executive_id: '3',
+          currency: 'INR',
+          exchange_rate: '1',
+          line_item_description: 'Cloud Security Audit & Review',
+          quantity: '1',
+          unit_price: '100000',
+          tax_rate: '0.18',
+          remarks: 'Enterprise security milestone',
+        },
+        example: orderCreateExample,
+      };
+
+      render(
+        <MockSessionProvider>
+          <OrderWorkflowModal operation={op} close={vi.fn()} />
+        </MockSessionProvider>
+      );
+
+      // In MOCK mode, mock customers and executives are preserved
+      expect(screen.getByText('Acme Cloud Solutions Pvt Ltd')).toBeInTheDocument();
+      expect(screen.getByText('Neha Rao')).toBeInTheDocument();
+
+      // Review changes button is immediately enabled without backend network calls
+      const reviewBtn = screen.getByRole('button', { name: /Review changes/i });
+      expect(reviewBtn).not.toBeDisabled();
+      fireEvent.click(reviewBtn);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Continue to confirmation/i })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Continue to confirmation/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Confirm create purchase order/i })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Confirm create purchase order/i }));
+
+      // Demo result step reached
+      await waitFor(() => {
+        expect(screen.getByText(/Verified demo change applied/i)).toBeInTheDocument();
       });
     });
   });
