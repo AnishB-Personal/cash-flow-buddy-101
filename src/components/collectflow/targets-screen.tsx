@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ArrowUpDown,
   Search,
@@ -20,7 +20,13 @@ import {
   type SalesTarget,
   canManageTargets,
   calculateExecutiveAchievement,
+  deriveTargetBreakdown,
 } from '@/data/targets';
+import {
+  apiClient,
+  type SalesTargetDTO,
+  type ExecutiveAttainmentReportDTO,
+} from '@/lib/api-client';
 
 export interface TargetsScreenProps {
   container?: HTMLElement | null | undefined;
@@ -28,8 +34,42 @@ export interface TargetsScreenProps {
 }
 
 export function TargetsScreen({ container, empty = false }: TargetsScreenProps) {
+  const isLive = apiClient.getMode() === 'live';
   const { role, fy, setFy, targets, demo, references } = useMockSession();
-  const canManage = canManageTargets(role);
+  const currentRole = isLive ? (apiClient.getCurrentUser()?.role || role) : role;
+  const canManage = canManageTargets(currentRole);
+
+  const [liveTargets, setLiveTargets] = useState<SalesTargetDTO[]>([]);
+  const [liveAttainment, setLiveAttainment] = useState<ExecutiveAttainmentReportDTO | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchLiveTargets = useCallback(async () => {
+    if (!isLive) return;
+    if (empty) {
+      setLiveTargets([]);
+      setLiveAttainment(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const [targetRes, attainRes] = await Promise.all([
+        apiClient.getTargets({ fy }),
+        apiClient.getExecutiveAttainment({ fy }),
+      ]);
+      setLiveTargets(targetRes.targets);
+      setLiveAttainment(attainRes);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load sales targets');
+    } finally {
+      setLoading(false);
+    }
+  }, [isLive, empty, fy]);
+
+  useEffect(() => {
+    fetchLiveTargets();
+  }, [fetchLiveTargets]);
 
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All statuses');
@@ -42,46 +82,125 @@ export function TargetsScreen({ container, empty = false }: TargetsScreenProps) 
   const [initialZero, setInitialZero] = useState(false);
 
   // Filter targets for active FY
-  const fyTargets = empty ? [] : targets.filter(t => t.fy_code === fy);
-
-  // Enrich with live achievement data from demo.invoices
-  const enriched = fyTargets.map(target => {
-    const ach = calculateExecutiveAchievement(
-      target.user_id,
-      demo.invoices,
-      target.yearly_target,
-      target.fy_code,
-    );
-    let statusLabel = 'In Progress';
-    let statusClass = 'partial';
-
-    if (target.yearly_target === 0) {
-      statusLabel = 'Zero Quota';
-      statusClass = 'zero';
-    } else if (ach.achievement_pct >= 100) {
-      statusLabel = 'Exceeded';
-      statusClass = 'paid';
-    } else if (ach.achievement_pct >= 50) {
-      statusLabel = 'On Track';
-      statusClass = 'partial';
-    } else if (ach.actual_sales === 0) {
-      statusLabel = 'Behind';
-      statusClass = 'overdue';
+  const fyTargets: SalesTarget[] = useMemo(() => {
+    if (empty) return [];
+    if (isLive) {
+      return (liveTargets || []).map((t) => {
+        const yearly = Number(t.target_amount || t.yearly_target || 0);
+        const breakdown = deriveTargetBreakdown(yearly);
+        return {
+          id: t.id ?? t.user_id,
+          user_id: t.user_id,
+          user_name: t.full_name || t.username || t.executive_name || `Rep ${t.user_id}`,
+          fy_code: t.fy_code,
+          yearly_target: yearly,
+          half_yearly_target: breakdown.half_yearly_target,
+          quarterly_target: breakdown.quarterly_target,
+          monthly_target: breakdown.monthly_target,
+          monthly_bottom_line: breakdown.monthly_bottom_line,
+          yearly_bottom_line: breakdown.yearly_bottom_line,
+        };
+      });
     }
+    return targets.filter((t) => t.fy_code === fy);
+  }, [empty, isLive, liveTargets, targets, fy]);
 
-    return {
-      target,
-      ach,
-      statusLabel,
-      statusClass,
-    };
-  });
+  // Enrich with live achievement data
+  const enriched = useMemo(() => {
+    return fyTargets.map((target) => {
+      let actualSales = 0;
+      let achPct = 0;
+      let orderCount = 0;
+      let remainingTarget = target.yearly_target;
+      let outstanding = 0;
+
+      if (isLive) {
+        const execList = liveAttainment?.executives || liveAttainment?.rows || [];
+        const exec = execList.find((e) => e.user_id === target.user_id);
+        if (exec) {
+          actualSales = Number(exec.achieved_amount || exec.actual_sales || 0);
+          achPct = exec.attainment_pct ?? exec.achievement_pct ?? 0;
+          orderCount = exec.active_invoices_count ?? exec.order_count ?? 0;
+          remainingTarget = Math.max(0, target.yearly_target - actualSales);
+        }
+      } else {
+        const ach = calculateExecutiveAchievement(
+          target.user_id,
+          demo.invoices,
+          target.yearly_target,
+          target.fy_code,
+        );
+        actualSales = ach.actual_sales;
+        achPct = ach.achievement_pct;
+        orderCount = ach.order_count;
+        remainingTarget = ach.remaining_target;
+        outstanding = ach.outstanding;
+      }
+
+      let statusLabel = 'In Progress';
+      let statusClass = 'partial';
+
+      if (target.yearly_target === 0) {
+        statusLabel = 'Zero Quota';
+        statusClass = 'zero';
+      } else if (achPct >= 100) {
+        statusLabel = 'Exceeded';
+        statusClass = 'paid';
+      } else if (achPct >= 50) {
+        statusLabel = 'On Track';
+        statusClass = 'partial';
+      } else if (actualSales === 0) {
+        statusLabel = 'Behind';
+        statusClass = 'overdue';
+      }
+
+      return {
+        target,
+        ach: {
+          actual_sales: actualSales,
+          achievement_pct: achPct,
+          is_on_track: achPct >= 50,
+          order_count: orderCount,
+          remaining_target: remainingTarget,
+          outstanding,
+          subperiods: {
+            h1_actual: 0,
+            h2_actual: 0,
+            q1_actual: 0,
+            q2_actual: 0,
+            q3_actual: 0,
+            q4_actual: 0,
+            m1_actual: 0,
+            m2_actual: 0,
+            m3_actual: 0,
+            m4_actual: 0,
+            m5_actual: 0,
+            m6_actual: 0,
+            m7_actual: 0,
+            m8_actual: 0,
+            m9_actual: 0,
+            m10_actual: 0,
+            m11_actual: 0,
+            m12_actual: 0,
+          },
+        },
+        statusLabel,
+        statusClass,
+      };
+    });
+  }, [fyTargets, isLive, liveAttainment, demo.invoices]);
 
   // Calculate summary metrics
-  const totalTargetQuota = enriched.reduce((sum, item) => sum + item.target.yearly_target, 0);
-  const totalSalesAchieved = enriched.reduce((sum, item) => sum + item.ach.actual_sales, 0);
+  const totalTargetQuota = isLive && liveAttainment
+    ? Number(liveAttainment.overall?.total_target ?? liveAttainment.summary?.total_target ?? 0)
+    : enriched.reduce((sum, item) => sum + item.target.yearly_target, 0);
+  const totalSalesAchieved = isLive && liveAttainment
+    ? Number(liveAttainment.overall?.total_achieved ?? liveAttainment.summary?.total_actual_sales ?? 0)
+    : enriched.reduce((sum, item) => sum + item.ach.actual_sales, 0);
   const overallAchievementPct =
-    totalTargetQuota > 0
+    isLive && liveAttainment
+      ? (liveAttainment.overall?.attainment_pct ?? liveAttainment.summary?.overall_achievement_pct ?? 0)
+      : totalTargetQuota > 0
       ? Number(((totalSalesAchieved / totalTargetQuota) * 100).toFixed(1))
       : 0.0;
   const activeQuotasCount = enriched.filter(item => item.target.yearly_target > 0).length;
@@ -147,6 +266,16 @@ export function TargetsScreen({ container, empty = false }: TargetsScreenProps) 
 
   return (
     <section className="cf-targets-section" data-testid="targets-screen">
+      {loading && (
+        <div className="cf-notice" role="status" style={{ marginBottom: 16 }}>
+          <span>Loading sales targets and attainment…</span>
+        </div>
+      )}
+      {error && (
+        <div className="cf-field-error" role="alert" style={{ marginBottom: 16, padding: 12, borderRadius: 6, backgroundColor: 'oklch(0.95 0.05 25)' }}>
+          <span>{error}</span>
+        </div>
+      )}
       {/* Header with Title & Set Target Button */}
       <header className="cf-section-header" style={{ marginBottom: 20 }}>
         <div>
@@ -523,6 +652,7 @@ export function TargetsScreen({ container, empty = false }: TargetsScreenProps) 
           target={editingTarget}
           initialZero={initialZero}
           container={container}
+          onSuccess={fetchLiveTargets}
           close={() => {
             setDrawerOpen(false);
             setEditingTarget(null);

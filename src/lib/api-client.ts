@@ -628,6 +628,110 @@ class ApiClient {
       body: data,
     });
   }
+
+  public async getTargets(params?: { fy?: string; user_id?: number }): Promise<{ fy_code: string; targets: SalesTargetDTO[] }> {
+    const searchParams = new URLSearchParams();
+    if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
+    if (params?.user_id) searchParams.set("user_id", String(params.user_id));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const res = await this.request<any>(`/api/targets${query}`);
+    if (Array.isArray(res)) {
+      return {
+        fy_code: params?.fy || "FY 2026-27",
+        targets: res,
+      };
+    }
+    return res;
+  }
+
+  public async upsertTarget(userId: number, data: TargetUpsertDTO): Promise<{ success: boolean; message: string; target: SalesTargetDTO }> {
+    return await this.request<{ success: boolean; message: string; target: SalesTargetDTO }>(`/api/targets/${userId}`, {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  public async getReportingSummary(params?: { fy?: string; as_of_date?: string }): Promise<ReportingSummaryDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
+    if (params?.as_of_date) searchParams.set("as_of_date", params.as_of_date);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return await this.request<ReportingSummaryDTO>(`/api/reporting/summary${query}`);
+  }
+
+  public async getArAging(params?: { as_of_date?: string; fy?: string }): Promise<ArAgingReportDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.as_of_date) searchParams.set("as_of_date", params.as_of_date);
+    if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return await this.request<ArAgingReportDTO>(`/api/reporting/ar-aging${query}`);
+  }
+
+  public async getExecutiveAttainment(params?: { fy?: string }): Promise<ExecutiveAttainmentReportDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return await this.request<ExecutiveAttainmentReportDTO>(`/api/reporting/attainment${query}`);
+  }
+
+  public async getCustomerExposure(params?: { fy?: string; as_of_date?: string }): Promise<CustomerExposureReportDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
+    if (params?.as_of_date) searchParams.set("as_of_date", params.as_of_date);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return await this.request<CustomerExposureReportDTO>(`/api/reporting/customer-exposure${query}`);
+  }
+
+  public async createExportToken(): Promise<{ token: string; expires_in: number; expires_at: string }> {
+    const res = await this.request<any>("/api/export/token", {
+      method: "POST",
+    });
+    const secret = res.token || res.ticket || "";
+    return {
+      token: secret,
+      expires_in: res.expires_in ?? 300,
+      expires_at: res.expires_at || new Date(Date.now() + 300 * 1000).toISOString(),
+    };
+  }
+
+  public async downloadExport(
+    format: "excel" | "csv",
+    params?: { ticket?: string; fy?: string; scope?: string; as_of_date?: string }
+  ): Promise<{ blob: Blob; filename: string }> {
+    if (this.mode !== "live") {
+      throw new Error("ApiClient.downloadExport() called while in mock mode.");
+    }
+    const searchParams = new URLSearchParams();
+    if (params?.ticket) searchParams.set("ticket", params.ticket);
+    if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
+    if (params?.scope) searchParams.set("scope", params.scope);
+    if (params?.as_of_date) searchParams.set("as_of_date", params.as_of_date);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const cleanEndpoint = `/api/export/${format}${query}`;
+    const url = `${this.baseUrl}${cleanEndpoint}`;
+
+    const headers: Record<string, string> = {};
+    if (this.inMemoryToken) {
+      headers["Authorization"] = `Bearer ${this.inMemoryToken}`;
+    }
+    const response = await fetch(url, { method: "GET", headers });
+    if (!response.ok) {
+      let errorMsg = `Export download failed (${response.status})`;
+      try {
+        const errJson = await response.json();
+        if (errJson.detail) errorMsg = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
+      } catch {}
+      throw new ApiError(response.status, errorMsg);
+    }
+    const contentDisp = response.headers.get("Content-Disposition") || "";
+    let filename = format === "excel" ? "collectflow_export.xlsx" : "collectflow_export.csv";
+    const match = contentDisp.match(/filename="?([^";]+)"?/);
+    if (match && match[1]) {
+      filename = match[1];
+    }
+    const blob = await response.blob();
+    return { blob, filename };
+  }
 }
 
 export interface ManagedUserDTO {
@@ -817,6 +921,141 @@ export interface PaymentCorrectionDTO {
   corrected_payment_mode?: string | undefined;
   corrected_remittance_number?: string | null | undefined;
   notes?: string | null | undefined;
+}
+
+export interface SalesTargetDTO {
+  id?: number | null;
+  user_id: number;
+  username?: string;
+  full_name?: string | null;
+  executive_name?: string | null;
+  role?: string;
+  is_active?: boolean;
+  fy_code: string;
+  target_amount?: string;
+  yearly_target?: string;
+  half_yearly_target?: string;
+  quarterly_target?: string;
+  monthly_target?: string;
+  monthly_bottom_line?: string;
+  yearly_bottom_line?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface TargetUpsertDTO {
+  fy_code: string;
+  target_amount: number | string;
+}
+
+export interface ReportingSummaryDTO {
+  fy_code: string;
+  as_of_date: string;
+  total_invoiced: string;
+  total_exclusive: string;
+  total_tax: string;
+  total_settled: string;
+  total_cash: string;
+  total_tds: string;
+  total_outstanding: string;
+  total_overdue: string;
+  unbilled_orders_value: string;
+  active_orders_count: number;
+  active_invoices_count: number;
+  settlement_ratio_pct: number;
+  collection_efficiency_pct: number;
+}
+
+export interface ArAgingBucketDTO {
+  bucket_id?: string;
+  bucket?: string;
+  label?: string;
+  min_days?: number | null;
+  max_days?: number | null;
+  amount: string;
+  count?: number;
+  invoice_count?: number;
+  percentage?: number;
+}
+
+export interface ArAgingInvoiceDTO {
+  invoice_id: number;
+  invoice_number: string;
+  customer_id: number;
+  customer_name: string;
+  executive_name?: string | null;
+  invoice_date: string;
+  due_date?: string | null;
+  total_amount: string;
+  outstanding_balance: string;
+  days_overdue: number;
+  bucket_id: string;
+}
+
+export interface ArAgingReportDTO {
+  as_of_date: string;
+  total_outstanding: string;
+  buckets: ArAgingBucketDTO[];
+  invoices?: ArAgingInvoiceDTO[];
+  rows?: any[];
+}
+
+export interface ExecutiveAttainmentItemDTO {
+  user_id: number;
+  username?: string;
+  full_name?: string | null;
+  executive_name?: string | null;
+  role?: string;
+  is_active?: boolean;
+  fy_code?: string;
+  target_amount?: string;
+  yearly_target?: string;
+  achieved_amount?: string;
+  actual_sales?: string;
+  attainment_pct?: number;
+  achievement_pct?: number;
+  active_invoices_count?: number;
+  order_count?: number;
+  outstanding_balance?: string;
+}
+
+export interface ExecutiveAttainmentReportDTO {
+  fy_code?: string;
+  overall?: {
+    total_target: string;
+    total_achieved: string;
+    attainment_pct: number;
+  };
+  summary?: {
+    fy_code: string;
+    total_target: string;
+    total_actual_sales: string;
+    overall_achievement_pct: number;
+    total_remaining: string;
+    executive_count: number;
+    excluded_unbilled_sales: string;
+  };
+  executives?: ExecutiveAttainmentItemDTO[];
+  rows?: ExecutiveAttainmentItemDTO[];
+}
+
+export interface CustomerExposureItemDTO {
+  customer_id: number;
+  billing_name: string;
+  total_invoiced: string;
+  total_settled: string;
+  outstanding_balance: string;
+  unbilled_orders_value: string;
+  overdue_balance: string;
+  max_days_overdue: number;
+  invoices_count: number;
+}
+
+export interface CustomerExposureReportDTO {
+  as_of_date: string;
+  fy_code: string;
+  total_outstanding: string;
+  customers: CustomerExposureItemDTO[];
 }
 
 export const apiClient = new ApiClient();

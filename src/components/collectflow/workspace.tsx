@@ -853,7 +853,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                     <ReportsHub
                       container={mobile ? frame : undefined}
                       empty={state === "Empty"}
-                      onOpenExport={isLive ? () => setNotice("Reports and exports are deferred to Stage 4C.5 under PostgreSQL architecture.") : () => setExportOpen(true)}
+                      onOpenExport={() => setExportOpen(true)}
                     />
                   )}
                 </>

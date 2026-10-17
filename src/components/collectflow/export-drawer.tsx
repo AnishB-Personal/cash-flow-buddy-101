@@ -44,6 +44,8 @@ import {
   type ExportRow,
   type ExportTotals,
 } from "@/utils/export-engine";
+import { type Invoice } from "@/data/collectflow";
+import { apiClient } from "@/lib/api-client";
 
 export type ExportStep = "scope" | "preview" | "review" | "confirm" | "result";
 export type ExportFormat = "excel" | "csv";
@@ -67,7 +69,9 @@ export interface ExportDrawerProps {
 }
 
 export function ExportDrawer({ initialFy, container, close, onExportComplete }: ExportDrawerProps) {
+  const isLive = apiClient.getMode() === "live";
   const { role, mobile, demo, fy: sessionFy } = useMockSession();
+  const currentRole = isLive ? (apiClient.getCurrentUser()?.role || role) : role;
   const trigger = useRef<HTMLElement | null>(
     typeof document === "undefined" ? null : (document.activeElement as HTMLElement),
   );
@@ -86,6 +90,16 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
   const [dirty, setDirty] = useState(false);
   const [downloadTriggered, setDownloadTriggered] = useState(false);
 
+  // Live records state
+  const [liveInvoices, setLiveInvoices] = useState<Invoice[]>([]);
+
+  useEffect(() => {
+    if (!isLive) return;
+    apiClient.getInvoices({ fy: selectedFy, limit: 100 })
+      .then((res) => setLiveInvoices(res.data))
+      .catch(() => {});
+  }, [isLive, selectedFy]);
+
   // Result state
   const [generatedTicket, setGeneratedTicket] = useState<{
     ticket: string;
@@ -98,13 +112,13 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
   } | null>(null);
 
   // Dynamic role re-verification
-  const permissions = getExportPermissions(role);
+  const permissions = getExportPermissions(currentRole);
   const isAuthorized = permissions.allowed;
 
   // Compile export dataset matching active scope
   const allFyRows = useMemo(() => {
-    return compileExportRows(demo.invoices, selectedFy);
-  }, [demo.invoices, selectedFy]);
+    return compileExportRows(isLive ? liveInvoices : demo.invoices, selectedFy);
+  }, [isLive, liveInvoices, demo.invoices, selectedFy]);
 
   const scopedRows = useMemo(() => {
     if (scopeType === "issued") {
@@ -138,6 +152,28 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
     setPending(true);
 
     try {
+      if (isLive) {
+        const tokenRes = await apiClient.createExportToken();
+        const exportTicket = {
+          ticket: tokenRes.token,
+          ticket_hash: "Authoritative Backend SHA-256 Hash",
+          expires_in: tokenRes.expires_in,
+        };
+        setGeneratedTicket(exportTicket);
+        setStep("result");
+        if (onExportComplete) {
+          onExportComplete({
+            filename: format === "excel" ? "collectflow_export.xlsx" : "collectflow_export.csv",
+            format,
+            recordCount: scopedRows.length,
+            ticket: exportTicket.ticket,
+            ticketHash: exportTicket.ticket_hash,
+            totals,
+          });
+        }
+        return;
+      }
+
       // 1. Simulate single-use 5-minute ticket issuance matching POST /api/export/token
       const ticketInfo = ticketManager.createTicket(1, role);
       setGeneratedTicket(ticketInfo);
@@ -167,14 +203,36 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
           totals,
         });
       }
+    } catch (e) {
+      alert(`Export Generation Error: ${e instanceof Error ? e.message : "Failed to generate export"}`);
     } finally {
       setPending(false);
     }
   }
 
   // Step 5: Trigger download
-  function handleDownload() {
-    if (!generatedBlob || !generatedTicket) return;
+  async function handleDownload() {
+    if (!generatedTicket) return;
+
+    if (isLive) {
+      try {
+        setPending(true);
+        const { blob, filename } = await apiClient.downloadExport(format, {
+          ticket: generatedTicket.ticket,
+          fy: selectedFy,
+          scope: scopeType,
+        });
+        triggerFileDownload(blob, filename);
+        setDownloadTriggered(true);
+      } catch (e) {
+        alert(`Export Download Error: ${e instanceof Error ? e.message : "Download failed"}`);
+      } finally {
+        setPending(false);
+      }
+      return;
+    }
+
+    if (!generatedBlob) return;
     // Consume single-use ticket simulation
     const consumption = ticketManager.consumeTicket(generatedTicket.ticket);
     if (!consumption.success) {
@@ -969,7 +1027,7 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
             )}
 
             {/* STEP 5: DOWNLOAD / RESULT */}
-            {step === "result" && generatedBlob && (
+            {step === "result" && (generatedBlob || generatedTicket) && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div
                   style={{
@@ -1010,7 +1068,7 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                     <div>
                       <dt style={{ color: "var(--muted-foreground)" }}>Filename</dt>
                       <dd style={{ fontWeight: 600, wordBreak: "break-all" }}>
-                        {generatedBlob.filename}
+                        {generatedBlob ? generatedBlob.filename : (format === "excel" ? "collectflow_export.xlsx" : "collectflow_export.csv")}
                       </dd>
                     </div>
                     <div>

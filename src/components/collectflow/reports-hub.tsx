@@ -9,7 +9,7 @@
  * 5. AR Aging Summary
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   FileText,
   Wallet,
@@ -50,6 +50,7 @@ import {
 import { readInitialTargets, type SalesTarget } from "@/data/targets";
 import { ExportDrawer } from "./export-drawer";
 import { useMockSession } from "./session";
+import { apiClient } from "@/lib/api-client";
 
 function useOptionalSession() {
   try {
@@ -82,6 +83,7 @@ export function ReportsHub({
   onOpenExport,
   className = "",
 }: ReportsHubProps) {
+  const isLive = apiClient.getMode() === "live";
   const session = useOptionalSession();
   const sessionFy = session?.fy ?? "FY 2026-27";
   const defaultFy = fyProp ?? sessionFy;
@@ -106,18 +108,69 @@ export function ReportsHub({
   // Internal Export Drawer State (if onOpenExport not provided)
   const [localExportOpen, setLocalExportOpen] = useState(false);
 
+  // Live datasets
+  const [liveInvoices, setLiveInvoices] = useState<Invoice[]>([]);
+  const [liveTargets, setLiveTargets] = useState<SalesTarget[]>([]);
+  const [liveCustomers, setLiveCustomers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLive) return;
+    if (empty) {
+      setLiveInvoices([]);
+      setLiveTargets([]);
+      setLiveCustomers([]);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      apiClient.getInvoices({ fy: selectedFy !== "ALL" ? selectedFy : undefined, limit: 100 }),
+      apiClient.getTargets(selectedFy !== "ALL" ? { fy: selectedFy } : undefined),
+      apiClient.getCustomers(),
+    ])
+      .then(([invRes, targetRes, custRes]) => {
+        setLiveInvoices(invRes.data);
+        setLiveTargets(
+          targetRes.targets.map((t) => {
+            const yearly = Number(t.target_amount);
+            return {
+              id: t.id ?? t.user_id,
+              user_id: t.user_id,
+              user_name: t.full_name || t.username || t.executive_name || `Executive ${t.user_id}`,
+              fy_code: t.fy_code,
+              yearly_target: yearly,
+              half_yearly_target: yearly / 2,
+              quarterly_target: yearly / 4,
+              monthly_target: yearly / 12,
+              monthly_bottom_line: (yearly / 12) * 0.8,
+              yearly_bottom_line: yearly * 0.8,
+            };
+          }),
+        );
+        setLiveCustomers(custRes);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load reports data");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [isLive, empty, selectedFy]);
+
   // Raw Datasets
   const allRecords = useMemo(
-    () => (empty ? [] : (recordsProp ?? session?.demo?.invoices ?? data.invoices)),
-    [empty, recordsProp, session?.demo?.invoices],
+    () => (empty ? [] : (isLive ? liveInvoices : (recordsProp ?? session?.demo?.invoices ?? data.invoices))),
+    [empty, isLive, liveInvoices, recordsProp, session?.demo?.invoices],
   );
   const allTargets = useMemo(
-    () => targetsProp ?? session?.targets ?? readInitialTargets(),
-    [targetsProp, session?.targets],
+    () => (isLive ? liveTargets : (targetsProp ?? session?.targets ?? readInitialTargets())),
+    [isLive, liveTargets, targetsProp, session?.targets],
   );
   const allCustomers = useMemo(
-    () => session?.references?.customers ?? data.customers,
-    [session?.references?.customers],
+    () => (isLive ? liveCustomers : (session?.references?.customers ?? data.customers)),
+    [isLive, liveCustomers, session?.references?.customers],
   );
 
   // Distinct Filter Option Lists

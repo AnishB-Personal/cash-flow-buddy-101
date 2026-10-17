@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Target,
   TrendingUp,
@@ -24,6 +24,7 @@ import {
   type ExecutivePerformance,
   type InvoiceSummary,
 } from '@/data/targets';
+import { apiClient, type ExecutiveAttainmentReportDTO } from '@/lib/api-client';
 import { useMockSession } from './session';
 
 function useOptionalSession() {
@@ -55,11 +56,30 @@ export function PerformanceAnalytics({
   className = '',
   container: _container,
 }: PerformanceAnalyticsProps) {
+  const isLive = apiClient.getMode() === 'live';
   const session = useOptionalSession();
   const activeFy = fyProp ?? session?.fy ?? 'FY 2026-27';
   const activeRole = roleProp ?? session?.role ?? 'finance';
   const allRecords = empty ? [] : (recordsProp ?? session?.demo.invoices ?? data.invoices);
   const allTargets = targetsProp ?? session?.targets ?? readInitialTargets();
+
+  const [liveAttainment, setLiveAttainment] = useState<ExecutiveAttainmentReportDTO | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLive) return;
+    if (empty) {
+      setLiveAttainment(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    apiClient.getExecutiveAttainment({ fy: activeFy })
+      .then((res) => setLiveAttainment(res))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load attainment data'))
+      .finally(() => setLoading(false));
+  }, [isLive, empty, activeFy]);
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -76,7 +96,7 @@ export function PerformanceAnalytics({
     });
   }, [allRecords, activeFy]);
 
-  const totalActualSales = useMemo(() => {
+  const calcActualSales = useMemo(() => {
     return roundCurrency(
       activeInvoices.reduce((sum, inv) => {
         const amount = inv.exclusive_amount ?? inv.total_amount ?? 0;
@@ -89,32 +109,40 @@ export function PerformanceAnalytics({
     return allTargets.filter((t) => t.fy_code === activeFy);
   }, [allTargets, activeFy]);
 
-  const totalAnnualTarget = useMemo(() => {
+  const calcAnnualTarget = useMemo(() => {
     return roundCurrency(fyTargets.reduce((sum, t) => sum + t.yearly_target, 0));
   }, [fyTargets]);
 
-  const totalHalfYearlyTarget = useMemo(() => {
-    return roundCurrency(fyTargets.reduce((sum, t) => sum + t.half_yearly_target, 0));
-  }, [fyTargets]);
+  const totalActualSales = isLive && liveAttainment
+    ? Number(liveAttainment.overall?.total_achieved ?? liveAttainment.summary?.total_actual_sales ?? 0)
+    : calcActualSales;
 
-  const totalQuarterlyTarget = useMemo(() => {
-    return roundCurrency(fyTargets.reduce((sum, t) => sum + t.quarterly_target, 0));
-  }, [fyTargets]);
+  const totalAnnualTarget = isLive && liveAttainment
+    ? Number(liveAttainment.overall?.total_target ?? liveAttainment.summary?.total_target ?? 0)
+    : calcAnnualTarget;
 
-  const totalMonthlyTarget = useMemo(() => {
-    return roundCurrency(fyTargets.reduce((sum, t) => sum + t.monthly_target, 0));
-  }, [fyTargets]);
+  const totalHalfYearlyTarget = isLive && liveAttainment
+    ? roundCurrency(totalAnnualTarget / 2)
+    : roundCurrency(fyTargets.reduce((sum, t) => sum + t.half_yearly_target, 0));
+
+  const totalQuarterlyTarget = isLive && liveAttainment
+    ? roundCurrency(totalAnnualTarget / 4)
+    : roundCurrency(fyTargets.reduce((sum, t) => sum + t.quarterly_target, 0));
+
+  const totalMonthlyTarget = isLive && liveAttainment
+    ? roundCurrency(totalAnnualTarget / 12)
+    : roundCurrency(fyTargets.reduce((sum, t) => sum + t.monthly_target, 0));
 
   // Overall Achievement % (1 decimal place) and safe zero-target division
-  const overallAchievementPct =
-    totalAnnualTarget > 0
-      ? Number(((totalActualSales / totalAnnualTarget) * 100).toFixed(1))
-      : 0.0;
+  const overallAchievementPct = isLive && liveAttainment
+    ? (liveAttainment.overall?.attainment_pct ?? liveAttainment.summary?.overall_achievement_pct ?? 0)
+    : totalAnnualTarget > 0
+    ? Number(((totalActualSales / totalAnnualTarget) * 100).toFixed(1))
+    : 0.0;
 
   const remainingTarget = Math.max(0, roundCurrency(totalAnnualTarget - totalActualSales));
 
   // Prorated/Current sub-period actuals vs targets
-  // In the sanitized demo snapshot (April 2026), transactions fall into H1, Q1, and Month 1 (April).
   const halfYearlyAchPct =
     totalHalfYearlyTarget > 0
       ? Number(((totalActualSales / totalHalfYearlyTarget) * 100).toFixed(1))
@@ -131,9 +159,66 @@ export function PerformanceAnalytics({
       : 0.0;
 
   // Executive Performance List from targets data module
-  const executivePerformance = useMemo(() => {
+  const mockExecutivePerformance = useMemo(() => {
     return getExecutivePerformanceList(allTargets, activeInvoices, activeFy);
   }, [allTargets, activeInvoices, activeFy]);
+
+  const executivePerformance: ExecutivePerformance[] = useMemo(() => {
+    if (isLive && liveAttainment) {
+      const execList = liveAttainment.executives || liveAttainment.rows || [];
+      return execList.map((exec) => {
+        const yearly = Number(exec.target_amount || exec.yearly_target || 0);
+        const achieved = Number(exec.achieved_amount || exec.actual_sales || 0);
+        const pct = exec.attainment_pct ?? exec.achievement_pct ?? 0;
+        let status = 'In Progress';
+        if (yearly === 0) status = 'Zero Quota';
+        else if (pct >= 100) status = 'Exceeded';
+        else if (pct >= 50) status = 'On Track';
+        else if (achieved === 0) status = 'Behind';
+
+        return {
+          user_id: exec.user_id,
+          name: exec.full_name || exec.username || exec.executive_name || `Executive ${exec.user_id}`,
+          fy_code: exec.fy_code || activeFy,
+          yearly_target: yearly,
+          half_yearly_target: roundCurrency(yearly / 2),
+          quarterly_target: roundCurrency(yearly / 4),
+          monthly_target: roundCurrency(yearly / 12),
+          monthly_bottom_line: roundCurrency(yearly / 12 * 0.8),
+          yearly_bottom_line: roundCurrency(yearly * 0.8),
+          fy_sales: achieved,
+          fy_orders: exec.active_invoices_count ?? exec.order_count ?? 0,
+          fy_outstanding: 0,
+          all_time_sales: achieved,
+          achievement_pct: pct,
+          remaining_target: Math.max(0, roundCurrency(yearly - achieved)),
+          active_invoices_count: exec.active_invoices_count ?? exec.order_count ?? 0,
+          subperiods: {
+            h1_actual: achieved,
+            h2_actual: 0,
+            q1_actual: achieved,
+            q2_actual: 0,
+            q3_actual: 0,
+            q4_actual: 0,
+            m1_actual: achieved,
+            m2_actual: 0,
+            m3_actual: 0,
+            m4_actual: 0,
+            m5_actual: 0,
+            m6_actual: 0,
+            m7_actual: 0,
+            m8_actual: 0,
+            m9_actual: 0,
+            m10_actual: 0,
+            m11_actual: 0,
+            m12_actual: 0,
+          },
+          status,
+        };
+      });
+    }
+    return mockExecutivePerformance;
+  }, [isLive, liveAttainment, mockExecutivePerformance]);
 
   // Ranked sales reps
   const rankedExecutives = useMemo(() => {

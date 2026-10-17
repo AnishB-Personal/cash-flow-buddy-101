@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   FileText,
   Wallet,
@@ -28,6 +28,12 @@ import {
   type SalesTarget,
   type InvoiceSummary,
 } from '@/data/targets';
+import {
+  apiClient,
+  type ReportingSummaryDTO,
+  type ArAgingReportDTO,
+  type ExecutiveAttainmentReportDTO,
+} from '@/lib/api-client';
 import { useMockSession } from './session';
 
 function useOptionalSession() {
@@ -55,51 +61,105 @@ export function FinancialDashboard({
   targets?: SalesTarget[];
   onNavigateTargets?: () => void;
 }) {
+  const isLive = apiClient.getMode() === 'live';
   const session = useOptionalSession();
   const dynamicTargets = targetsProp ?? session?.targets ?? readInitialTargets();
 
+  const [liveSummary, setLiveSummary] = useState<ReportingSummaryDTO | null>(null);
+  const [liveAging, setLiveAging] = useState<ArAgingReportDTO | null>(null);
+  const [liveAttainment, setLiveAttainment] = useState<ExecutiveAttainmentReportDTO | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLive) return;
+    if (empty) {
+      setLiveSummary(null);
+      setLiveAging(null);
+      setLiveAttainment(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      apiClient.getReportingSummary({ fy }),
+      apiClient.getArAging({ fy }),
+      apiClient.getExecutiveAttainment({ fy }),
+    ])
+      .then(([summaryRes, agingRes, attainmentRes]) => {
+        if (cancelled) return;
+        setLiveSummary(summaryRes);
+        setLiveAging(agingRes);
+        setLiveAttainment(attainmentRes);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLive, empty, fy]);
+
   const k = snapshot(empty ? '' : fy, role, undefined, records);
+
+  const totalInvoiced = isLive && liveSummary ? Number(liveSummary.total_invoiced) : k.invoiced;
+  const totalOutstanding = isLive && liveSummary ? Number(liveSummary.total_outstanding) : k.outstanding;
+  const cashCollected = isLive && liveSummary ? Number(liveSummary.total_cash) : k.cash;
+  const tdsRecognized = isLive && liveSummary ? Number(liveSummary.total_tds) : k.tds;
+  const settlementRate = isLive && liveSummary ? liveSummary.settlement_ratio_pct : k.rate;
+  const overdueReceivables = isLive && liveSummary ? Number(liveSummary.total_overdue) : k.overdue;
+  const unbilledOrders = isLive && liveSummary ? Number(liveSummary.unbilled_orders_value) : k.unbilled;
+  const unbilledCount = isLive && liveSummary ? liveSummary.active_orders_count : k.unbilledCount;
+  const invoiceCount = isLive && liveSummary ? liveSummary.active_invoices_count : k.count;
+  const totalSettled = isLive && liveSummary ? Number(liveSummary.total_settled) : k.settled;
   const metrics = [
     {
       label: 'Total invoiced',
-      value: money(k.invoiced),
-      note: `${k.count} issued invoice${k.count === 1 ? '' : 's'}`,
+      value: money(totalInvoiced),
+      note: `${invoiceCount} issued invoice${invoiceCount === 1 ? '' : 's'}`,
       icon: FileText,
     },
     {
       label: 'Total outstanding',
-      value: money(k.outstanding),
+      value: money(totalOutstanding),
       note: 'Issued receivables only',
       icon: Wallet,
     },
     {
       label: 'Cash collected',
-      value: money(k.cash),
+      value: money(cashCollected),
       note: 'Cash settlement received',
       icon: Landmark,
     },
     {
       label: 'TDS recognized',
-      value: money(k.tds),
+      value: money(tdsRecognized),
       note: 'Statutory settlement credit',
       icon: Receipt,
     },
     {
       label: 'Settlement Rate',
-      value: `${k.rate}%`,
+      value: `${settlementRate}%`,
       note: '(Cash + TDS) / invoiced',
       icon: Gauge,
     },
     {
       label: 'Overdue receivables',
-      value: money(k.overdue),
+      value: money(overdueReceivables),
       note: 'Issued invoices past due',
       icon: Clock,
     },
     {
       label: 'Unbilled orders',
-      value: money(k.unbilled),
-      note: `${k.unbilledCount} order${k.unbilledCount === 1 ? '' : 's'} · not receivables`,
+      value: money(unbilledOrders),
+      note: `${unbilledCount} order${unbilledCount === 1 ? '' : 's'} · not receivables`,
       icon: Layers,
     },
   ];
@@ -110,8 +170,39 @@ export function FinancialDashboard({
     return getExecutivePerformanceList(dynamicTargets, activeInvoices, fy);
   }, [dynamicTargets, records, empty, fy]);
 
+  const executives = isLive && liveAttainment
+    ? (liveAttainment.executives || liveAttainment.rows || []).map((e) => ({
+        user_id: e.user_id,
+        name: e.full_name || e.username || e.executive_name || `Executive ${e.user_id}`,
+        yearly_target: Number(e.target_amount || e.yearly_target || 0),
+        fy_sales: Number(e.achieved_amount || e.actual_sales || 0),
+        achievement_pct: e.attainment_pct ?? e.achievement_pct ?? 0,
+        active_invoices_count: e.active_invoices_count ?? e.order_count ?? 0,
+        fy_orders: e.active_invoices_count ?? e.order_count ?? 0,
+        fy_outstanding: Number(e.outstanding_balance || 0),
+      }))
+    : executiveList;
+
+  const agingItems = isLive && liveAging
+    ? (liveAging.buckets || []).map((b) => ({
+        bucket: b.label || b.bucket || '',
+        count: b.invoice_count ?? b.count ?? 0,
+        amount: Number(b.amount || 0),
+      }))
+    : k.aging;
+
   return (
     <>
+      {loading && (
+        <div className="cf-notice" role="status" style={{ marginBottom: 16 }}>
+          <span>Loading live financial metrics…</span>
+        </div>
+      )}
+      {error && (
+        <div className="cf-field-error" role="alert" style={{ marginBottom: 16, padding: 12, borderRadius: 6, backgroundColor: 'oklch(0.95 0.05 25)' }}>
+          <span>{error}</span>
+        </div>
+      )}
       <section className="cf-metrics" aria-label="Financial KPIs">
         {metrics.map((metric, index) => (
           <article
@@ -154,7 +245,7 @@ export function FinancialDashboard({
           <div className="cf-chart">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={[{ name: fy, Invoiced: k.invoiced, Cash: k.cash, TDS: k.tds }]}
+                data={[{ name: fy, Invoiced: totalInvoiced, Cash: cashCollected, TDS: tdsRecognized }]}
                 margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
               >
                 <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 5" />
@@ -197,9 +288,9 @@ export function FinancialDashboard({
           </div>
           <footer>
             <span>Total settlement</span>
-            <strong>{money(k.settled)}</strong>
+            <strong>{money(totalSettled)}</strong>
             <span className="cf-muted">
-              Cash {money(k.cash)} + TDS {money(k.tds)}
+              Cash {money(cashCollected)} + TDS {money(tdsRecognized)}
             </span>
           </footer>
         </section>
@@ -210,12 +301,12 @@ export function FinancialDashboard({
             <h2>Receivables aging</h2>
             <p className="cf-muted">{agingAsOf()}</p>
             <div className="cf-aging-total">
-              <strong>{money(k.outstanding)}</strong>
+              <strong>{money(totalOutstanding)}</strong>
               <span>Total outstanding</span>
             </div>
           </header>
           <div>
-            {k.aging.map((item, index) => (
+            {agingItems.map((item, index) => (
               <Button
                 variant="ghost"
                 className="cf-aging-row"
@@ -315,7 +406,7 @@ export function FinancialDashboard({
             gap: 16,
           }}
         >
-          {executiveList.map((exec) => (
+          {executives.map((exec) => (
             <article
               key={exec.user_id}
               className="cf-metric"
@@ -341,10 +432,11 @@ export function FinancialDashboard({
                       color: 'var(--primary)',
                     }}
                   >
-                    {exec.name
+                    {(exec.name || 'EX')
                       .split(' ')
-                      .map((n) => n[0])
-                      .join('')}
+                      .filter(Boolean)
+                      .map((n: string) => n[0] || '')
+                      .join('') || 'EX'}
                   </span>
                   <strong style={{ fontSize: 14 }}>{exec.name}</strong>
                 </div>

@@ -18,6 +18,7 @@ import {
   canManageTargets,
   roundCurrency,
 } from '@/data/targets';
+import { apiClient, type ManagedUserDTO } from '@/lib/api-client';
 
 export interface TargetDrawerProps {
   target?: SalesTarget | null | undefined;
@@ -25,6 +26,7 @@ export interface TargetDrawerProps {
   defaultUserId?: number | undefined;
   container?: HTMLElement | null | undefined;
   close: () => void;
+  onSuccess?: () => void;
 }
 
 const PRESET_AMOUNTS = [
@@ -40,9 +42,22 @@ export function TargetDrawer({
   defaultUserId,
   container,
   close,
+  onSuccess,
 }: TargetDrawerProps) {
+  const isLive = apiClient.getMode() === 'live';
   const { role, fy, revision, confirmTarget, targets, demo, references } = useMockSession();
-  const salesUsers = fixtures.users.filter(u => u.role === 'sales');
+  const [liveUsers, setLiveUsers] = useState<ManagedUserDTO[]>([]);
+
+  useEffect(() => {
+    if (!isLive) return;
+    apiClient.getUsers()
+      .then((users) => setLiveUsers(users.filter(u => u.role === 'sales' && u.is_active)))
+      .catch(() => {});
+  }, [isLive]);
+
+  const salesUsers = isLive && liveUsers.length > 0
+    ? liveUsers.map(u => ({ id: u.id, full_name: u.full_name || u.username, username: u.username, role: u.role }))
+    : fixtures.users.filter(u => u.role === 'sales');
   const years = references?.years?.map(y => y.code) ?? ['FY 2026-27', 'FY 2025-26', 'FY 2024-25'];
 
   const initialUser =
@@ -79,7 +94,8 @@ export function TargetDrawer({
   const trigger = useRef<HTMLElement | null>(
     typeof document === 'undefined' ? null : (document.activeElement as HTMLElement),
   );
-  const allowed = canManageTargets(role);
+  const currentRole = isLive ? (apiClient.getCurrentUser()?.role || role) : role;
+  const allowed = canManageTargets(currentRole);
 
   const selectedUser = salesUsers.find(u => u.id === input.user_id) ?? {
     id: input.user_id,
@@ -230,6 +246,16 @@ export function TargetDrawer({
     setPending(true);
     setError('');
     try {
+      if (isLive) {
+        await apiClient.upsertTarget(input.user_id, {
+          fy_code: input.fy_code,
+          target_amount: input.yearly_target,
+        });
+        setStep('result');
+        setDirty(false);
+        onSuccess?.();
+        return;
+      }
       if (
         origin.current.revision !== revision ||
         origin.current.fy !== fy ||
@@ -240,6 +266,7 @@ export function TargetDrawer({
       await confirmTarget(review);
       setStep('result');
       setDirty(false);
+      onSuccess?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Submission failed. No changes applied. Try again.');
     } finally {
