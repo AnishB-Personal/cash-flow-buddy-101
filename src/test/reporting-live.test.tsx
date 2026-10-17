@@ -179,6 +179,22 @@ describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () =
         is_active: true,
       } as any,
     ]);
+    vi.spyOn(apiClient, 'getUsers').mockResolvedValue([
+      {
+        id: 3,
+        username: "neha",
+        full_name: "Neha Rao",
+        role: "sales",
+        is_active: true,
+      },
+      {
+        id: 5,
+        username: "arjun",
+        full_name: "Arjun Mehta",
+        role: "sales",
+        is_active: true,
+      },
+    ]);
   });
 
   describe('FinancialDashboard LIVE Integration', () => {
@@ -293,10 +309,10 @@ describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () =
       fireEvent.click(screen.getByRole('button', { name: /confirm target changes/i }));
 
       await waitFor(() => {
-        expect(upsertSpy).toHaveBeenCalledWith(3, {
+        expect(upsertSpy).toHaveBeenCalledWith(3, expect.objectContaining({
           fy_code: 'FY 2026-27',
-          target_amount: 4000000,
-        });
+          yearly_target: 4000000,
+        }));
         expect(successSpy).toHaveBeenCalled();
       });
     });

@@ -109,16 +109,23 @@ export function FinancialDashboard({
 
   const k = snapshot(empty ? '' : fy, role, undefined, records);
 
-  const totalInvoiced = isLive && liveSummary ? Number(liveSummary.total_invoiced) : k.invoiced;
-  const totalOutstanding = isLive && liveSummary ? Number(liveSummary.total_outstanding) : k.outstanding;
-  const cashCollected = isLive && liveSummary ? Number(liveSummary.total_cash) : k.cash;
-  const tdsRecognized = isLive && liveSummary ? Number(liveSummary.total_tds) : k.tds;
-  const settlementRate = isLive && liveSummary ? liveSummary.settlement_ratio_pct : k.rate;
-  const overdueReceivables = isLive && liveSummary ? Number(liveSummary.total_overdue) : k.overdue;
-  const unbilledOrders = isLive && liveSummary ? Number(liveSummary.unbilled_orders_value) : k.unbilled;
-  const unbilledCount = isLive && liveSummary ? liveSummary.active_orders_count : k.unbilledCount;
-  const invoiceCount = isLive && liveSummary ? liveSummary.active_invoices_count : k.count;
-  const totalSettled = isLive && liveSummary ? Number(liveSummary.total_settled) : k.settled;
+  const totalInvoiced = isLive ? (liveSummary ? Number(liveSummary.total_invoiced) : 0) : k.invoiced;
+  const totalOutstanding = isLive ? (liveSummary ? Number(liveSummary.total_outstanding) : 0) : k.outstanding;
+  const cashCollected = isLive ? (liveSummary ? Number(liveSummary.total_cash) : 0) : k.cash;
+  const tdsRecognized = isLive ? (liveSummary ? Number(liveSummary.total_tds) : 0) : k.tds;
+  const settlementRate = isLive
+    ? (liveSummary ? (liveSummary.collection_rate_pct ?? liveSummary.settlement_ratio_pct ?? 0) : 0)
+    : k.rate;
+  const overdueReceivables = isLive ? (liveSummary ? Number(liveSummary.total_overdue) : 0) : k.overdue;
+  const unbilledOrders = isLive ? (liveSummary ? Number(liveSummary.unbilled_orders_value) : 0) : k.unbilled;
+  const unbilledCount = isLive
+    ? (liveSummary ? (liveSummary.unbilled_count ?? liveSummary.active_orders_count ?? 0) : 0)
+    : k.unbilledCount;
+  const invoiceCount = isLive
+    ? (liveSummary ? (liveSummary.total_invoices ?? liveSummary.active_invoices_count ?? 0) : 0)
+    : k.count;
+  const totalSettled = isLive ? (liveSummary ? Number(liveSummary.total_settled) : 0) : k.settled;
+
   const metrics = [
     {
       label: 'Total invoiced',
@@ -170,8 +177,8 @@ export function FinancialDashboard({
     return getExecutivePerformanceList(dynamicTargets, activeInvoices, fy);
   }, [dynamicTargets, records, empty, fy]);
 
-  const executives = isLive && liveAttainment
-    ? (liveAttainment.executives || liveAttainment.rows || []).map((e) => ({
+  const executives = isLive
+    ? (liveAttainment?.executives || liveAttainment?.rows || []).map((e) => ({
         user_id: e.user_id,
         name: e.full_name || e.username || e.executive_name || `Executive ${e.user_id}`,
         yearly_target: Number(e.target_amount || e.yearly_target || 0),
@@ -183,8 +190,8 @@ export function FinancialDashboard({
       }))
     : executiveList;
 
-  const agingItems = isLive && liveAging
-    ? (liveAging.buckets || []).map((b) => ({
+  const agingItems = isLive
+    ? (liveAging?.buckets || []).map((b) => ({
         bucket: b.label || b.bucket || '',
         count: b.invoice_count ?? b.count ?? 0,
         amount: Number(b.amount || 0),
@@ -208,13 +215,14 @@ export function FinancialDashboard({
           <article
             key={metric.label}
             className={`cf-metric ${index === 1 ? 'cf-metric-primary' : ''}`}
+            aria-busy={isLive && loading}
           >
             <div>
               <span>{metric.label}</span>
               <metric.icon size={20} />
             </div>
-            <strong>{metric.value}</strong>
-            <small>{metric.note}</small>
+            <strong>{isLive && loading ? '—' : isLive && error ? '—' : metric.value}</strong>
+            <small>{isLive && loading ? 'Loading authoritative metrics…' : isLive && error ? 'Unavailable' : metric.note}</small>
           </article>
         ))}
       </section>

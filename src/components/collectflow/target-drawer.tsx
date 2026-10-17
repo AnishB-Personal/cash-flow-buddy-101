@@ -18,7 +18,7 @@ import {
   canManageTargets,
   roundCurrency,
 } from '@/data/targets';
-import { apiClient, type ManagedUserDTO } from '@/lib/api-client';
+import { apiClient, type ManagedUserDTO, type SalesTargetDTO } from '@/lib/api-client';
 
 export interface TargetDrawerProps {
   target?: SalesTarget | null | undefined;
@@ -47,16 +47,36 @@ export function TargetDrawer({
   const isLive = apiClient.getMode() === 'live';
   const { role, fy, revision, confirmTarget, targets, demo, references } = useMockSession();
   const [liveUsers, setLiveUsers] = useState<ManagedUserDTO[]>([]);
+  const [liveUsersLoading, setLiveUsersLoading] = useState(false);
+  const [liveUsersError, setLiveUsersError] = useState<string | null>(null);
+  const [confirmedTarget, setConfirmedTarget] = useState<SalesTargetDTO | null>(null);
 
   useEffect(() => {
     if (!isLive) return;
+    setLiveUsersLoading(true);
     apiClient.getUsers()
-      .then((users) => setLiveUsers(users.filter(u => u.role === 'sales' && u.is_active)))
-      .catch(() => {});
-  }, [isLive]);
+      .then((users) => {
+        const sales = users.filter(u => u.role === 'sales' && u.is_active);
+        setLiveUsers(sales);
+        const firstSales = sales[0];
+        if (firstSales && !target && !defaultUserId) {
+          setInput(prev => ({ ...prev, user_id: firstSales.id }));
+        }
+      })
+      .catch((err) => {
+        setLiveUsersError(err instanceof Error ? err.message : 'Failed to load sales users');
+      })
+      .finally(() => {
+        setLiveUsersLoading(false);
+      });
+  }, [isLive, target, defaultUserId]);
 
-  const salesUsers = isLive && liveUsers.length > 0
-    ? liveUsers.map(u => ({ id: u.id, full_name: u.full_name || u.username, username: u.username, role: u.role }))
+  // CF4C5-01: Eliminate synthetic sales-user fallbacks in LIVE target configuration
+  const salesUsers = isLive
+    ? (target && !liveUsers.some(u => u.id === target.user_id)
+        ? [{ id: target.user_id, full_name: target.user_name, username: target.user_name.toLowerCase().replace(/\s+/g, ''), role: 'sales' as const }, ...liveUsers.map(u => ({ id: u.id, full_name: u.full_name || u.username, username: u.username, role: u.role }))]
+        : liveUsers.map(u => ({ id: u.id, full_name: u.full_name || u.username, username: u.username, role: u.role }))
+      )
     : fixtures.users.filter(u => u.role === 'sales');
   const years = references?.years?.map(y => y.code) ?? ['FY 2026-27', 'FY 2025-26', 'FY 2024-25'];
 
@@ -64,7 +84,7 @@ export function TargetDrawer({
     target?.user_id ??
     defaultUserId ??
     salesUsers[0]?.id ??
-    3;
+    (isLive ? 0 : 3);
   const initialFy = target?.fy_code ?? fy;
   const initialYearly = initialZero ? 0 : (target?.yearly_target ?? 4000000);
   const initialBreakdown = deriveTargetBreakdown(initialYearly, initialZero ? undefined : (target ?? undefined));
@@ -198,6 +218,11 @@ export function TargetDrawer({
   }
 
   function validate(): boolean {
+    if (isLive && (!input.user_id || salesUsers.length === 0)) {
+      setErrors({ user_id: 'Please select an authorized active sales representative.' });
+      return false;
+    }
+
     const payloadToValidate = customOverride
       ? input
       : {
@@ -247,10 +272,17 @@ export function TargetDrawer({
     setError('');
     try {
       if (isLive) {
-        await apiClient.upsertTarget(input.user_id, {
+        const res = await apiClient.upsertTarget(input.user_id, {
           fy_code: input.fy_code,
-          target_amount: input.yearly_target,
+          yearly_target: input.yearly_target,
+          half_yearly_target: input.half_yearly_target,
+          quarterly_target: input.quarterly_target,
+          monthly_target: input.monthly_target,
+          monthly_bottom_line: input.monthly_bottom_line,
+          yearly_bottom_line: input.yearly_bottom_line,
         });
+        const saved = (res as any).target || (res as unknown as SalesTargetDTO);
+        setConfirmedTarget(saved);
         setStep('result');
         setDirty(false);
         onSuccess?.();
@@ -377,22 +409,28 @@ export function TargetDrawer({
                   <div className="cf-reference-fields">
                     <div>
                       <label htmlFor="target-rep">Sales Representative</label>
-                      <select
-                        id="target-rep"
-                        value={input.user_id}
-                        disabled={Boolean(target)}
-                        onChange={e => {
-                          const uid = Number(e.target.value);
-                          setInput(prev => ({ ...prev, user_id: uid }));
-                          setDirty(true);
-                        }}
-                      >
-                        {salesUsers.map(u => (
-                          <option key={u.id} value={u.id}>
-                            {u.full_name ?? u.username} ({u.username})
-                          </option>
-                        ))}
-                      </select>
+                      {isLive && liveUsersLoading ? (
+                        <p className="cf-muted" style={{ padding: '8px 0', fontSize: 13 }}>Loading active sales representatives…</p>
+                      ) : isLive && salesUsers.length === 0 ? (
+                        <p className="cf-field-error" style={{ padding: '8px 0', fontSize: 13 }}>No active sales representatives found in database.</p>
+                      ) : (
+                        <select
+                          id="target-rep"
+                          value={input.user_id}
+                          disabled={Boolean(target)}
+                          onChange={e => {
+                            const uid = Number(e.target.value);
+                            setInput(prev => ({ ...prev, user_id: uid }));
+                            setDirty(true);
+                          }}
+                        >
+                          {salesUsers.map(u => (
+                            <option key={u.id} value={u.id}>
+                              {u.full_name ?? u.username} ({u.username})
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       <FieldError id="error-rep" message={errors['user_id']} />
                     </div>
 
@@ -778,7 +816,9 @@ export function TargetDrawer({
                   <div>
                     <strong style={{ fontSize: 16 }}>Sales target successfully configured</strong>
                     <p className="cf-muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
-                      Updated target and attainment metrics are now active in the demo session.
+                      {isLive
+                        ? 'Authoritative PostgreSQL sales target has been persistently updated in the database.'
+                        : 'Updated target and attainment metrics are now active in the demo session.'}
                     </p>
                   </div>
                 </div>
@@ -787,29 +827,49 @@ export function TargetDrawer({
                   <dl className="cf-detail-grid">
                     <div>
                       <dt>Executive</dt>
-                      <dd>{review.target.user_name}</dd>
+                      <dd>
+                        {isLive && confirmedTarget
+                          ? (confirmedTarget.full_name || confirmedTarget.executive_name || confirmedTarget.username || userName)
+                          : review.target.user_name}
+                      </dd>
                     </div>
                     <div>
                       <dt>Financial Year</dt>
-                      <dd>{review.target.fy_code}</dd>
+                      <dd>{isLive && confirmedTarget ? confirmedTarget.fy_code : review.target.fy_code}</dd>
                     </div>
                     <div>
                       <dt>Annual Target</dt>
                       <dd>
-                        <strong>{money(review.target.yearly_target)}</strong>
+                        <strong>
+                          {isLive && confirmedTarget
+                            ? money(Number(confirmedTarget.yearly_target || confirmedTarget.target_amount || input.yearly_target))
+                            : money(review.target.yearly_target)}
+                        </strong>
                       </dd>
                     </div>
                     <div>
                       <dt>Half-Yearly Target</dt>
-                      <dd>{money(review.target.half_yearly_target)}</dd>
+                      <dd>
+                        {isLive && confirmedTarget
+                          ? money(Number(confirmedTarget.half_yearly_target || 0))
+                          : money(review.target.half_yearly_target)}
+                      </dd>
                     </div>
                     <div>
                       <dt>Quarterly Target</dt>
-                      <dd>{money(review.target.quarterly_target)}</dd>
+                      <dd>
+                        {isLive && confirmedTarget
+                          ? money(Number(confirmedTarget.quarterly_target || 0))
+                          : money(review.target.quarterly_target)}
+                      </dd>
                     </div>
                     <div>
                       <dt>Monthly Quota</dt>
-                      <dd>{money(review.target.monthly_target)}</dd>
+                      <dd>
+                        {isLive && confirmedTarget
+                          ? money(Number(confirmedTarget.monthly_target || 0))
+                          : money(review.target.monthly_target)}
+                      </dd>
                     </div>
                     <div>
                       <dt>Resulting Attainment</dt>

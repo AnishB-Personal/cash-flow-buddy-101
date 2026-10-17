@@ -629,7 +629,7 @@ class ApiClient {
     });
   }
 
-  public async getTargets(params?: { fy?: string; user_id?: number }): Promise<{ fy_code: string; targets: SalesTargetDTO[] }> {
+  public async getTargets(params?: { fy?: string | undefined; user_id?: number | undefined }): Promise<{ fy_code: string; targets: SalesTargetDTO[] }> {
     const searchParams = new URLSearchParams();
     if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
     if (params?.user_id) searchParams.set("user_id", String(params.user_id));
@@ -651,7 +651,7 @@ class ApiClient {
     });
   }
 
-  public async getReportingSummary(params?: { fy?: string; as_of_date?: string }): Promise<ReportingSummaryDTO> {
+  public async getReportingSummary(params?: { fy?: string | undefined; as_of_date?: string | undefined }): Promise<ReportingSummaryDTO> {
     const searchParams = new URLSearchParams();
     if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
     if (params?.as_of_date) searchParams.set("as_of_date", params.as_of_date);
@@ -659,7 +659,7 @@ class ApiClient {
     return await this.request<ReportingSummaryDTO>(`/api/reporting/summary${query}`);
   }
 
-  public async getArAging(params?: { as_of_date?: string; fy?: string }): Promise<ArAgingReportDTO> {
+  public async getArAging(params?: { as_of_date?: string | undefined; fy?: string | undefined }): Promise<ArAgingReportDTO> {
     const searchParams = new URLSearchParams();
     if (params?.as_of_date) searchParams.set("as_of_date", params.as_of_date);
     if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
@@ -667,14 +667,14 @@ class ApiClient {
     return await this.request<ArAgingReportDTO>(`/api/reporting/ar-aging${query}`);
   }
 
-  public async getExecutiveAttainment(params?: { fy?: string }): Promise<ExecutiveAttainmentReportDTO> {
+  public async getExecutiveAttainment(params?: { fy?: string | undefined }): Promise<ExecutiveAttainmentReportDTO> {
     const searchParams = new URLSearchParams();
     if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
     const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
     return await this.request<ExecutiveAttainmentReportDTO>(`/api/reporting/attainment${query}`);
   }
 
-  public async getCustomerExposure(params?: { fy?: string; as_of_date?: string }): Promise<CustomerExposureReportDTO> {
+  public async getCustomerExposure(params?: { fy?: string | undefined; as_of_date?: string | undefined }): Promise<CustomerExposureReportDTO> {
     const searchParams = new URLSearchParams();
     if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
     if (params?.as_of_date) searchParams.set("as_of_date", params.as_of_date);
@@ -682,21 +682,25 @@ class ApiClient {
     return await this.request<CustomerExposureReportDTO>(`/api/reporting/customer-exposure${query}`);
   }
 
-  public async createExportToken(): Promise<{ token: string; expires_in: number; expires_at: string }> {
+  public async createExportToken(params?: { format?: string | undefined; fy?: string | undefined; scope?: string | undefined }): Promise<{ token: string; expires_in: number; expires_at: string; format?: string | undefined; fy?: string | undefined; scope?: string | undefined }> {
     const res = await this.request<any>("/api/export/token", {
       method: "POST",
+      body: params || {},
     });
     const secret = res.token || res.ticket || "";
     return {
       token: secret,
       expires_in: res.expires_in ?? 300,
       expires_at: res.expires_at || new Date(Date.now() + 300 * 1000).toISOString(),
+      format: res.format,
+      fy: res.fy,
+      scope: res.scope,
     };
   }
 
   public async downloadExport(
     format: "excel" | "csv",
-    params?: { ticket?: string; fy?: string; scope?: string; as_of_date?: string }
+    params?: { ticket?: string | undefined; fy?: string | undefined; scope?: string | undefined; as_of_date?: string | undefined }
   ): Promise<{ blob: Blob; filename: string }> {
     if (this.mode !== "live") {
       throw new Error("ApiClient.downloadExport() called while in mock mode.");
@@ -945,25 +949,34 @@ export interface SalesTargetDTO {
 
 export interface TargetUpsertDTO {
   fy_code: string;
-  target_amount: number | string;
+  yearly_target: number | string;
+  half_yearly_target?: number | string | undefined;
+  quarterly_target?: number | string | undefined;
+  monthly_target?: number | string | undefined;
+  monthly_bottom_line?: number | string | undefined;
+  yearly_bottom_line?: number | string | undefined;
+  target_amount?: number | string | undefined;
 }
 
 export interface ReportingSummaryDTO {
   fy_code: string;
   as_of_date: string;
   total_invoiced: string;
-  total_exclusive: string;
-  total_tax: string;
+  total_exclusive?: string;
+  total_tax?: string;
   total_settled: string;
   total_cash: string;
   total_tds: string;
   total_outstanding: string;
   total_overdue: string;
   unbilled_orders_value: string;
-  active_orders_count: number;
-  active_invoices_count: number;
-  settlement_ratio_pct: number;
-  collection_efficiency_pct: number;
+  total_invoices?: number;
+  active_invoices_count?: number;
+  unbilled_count?: number;
+  active_orders_count?: number;
+  collection_rate_pct?: number | string;
+  settlement_ratio_pct?: number;
+  collection_efficiency_pct?: number;
 }
 
 export interface ArAgingBucketDTO {

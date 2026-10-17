@@ -45,7 +45,7 @@ import {
   type ExportTotals,
 } from "@/utils/export-engine";
 import { type Invoice } from "@/data/collectflow";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, type ReportingSummaryDTO } from "@/lib/api-client";
 
 export type ExportStep = "scope" | "preview" | "review" | "confirm" | "result";
 export type ExportFormat = "excel" | "csv";
@@ -92,11 +92,15 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
 
   // Live records state
   const [liveInvoices, setLiveInvoices] = useState<Invoice[]>([]);
+  const [liveSummary, setLiveSummary] = useState<ReportingSummaryDTO | null>(null);
 
   useEffect(() => {
     if (!isLive) return;
     apiClient.getInvoices({ fy: selectedFy, limit: 100 })
       .then((res) => setLiveInvoices(res.data))
+      .catch(() => {});
+    apiClient.getReportingSummary({ fy: selectedFy })
+      .then((res) => setLiveSummary(res))
       .catch(() => {});
   }, [isLive, selectedFy]);
 
@@ -153,7 +157,11 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
 
     try {
       if (isLive) {
-        const tokenRes = await apiClient.createExportToken();
+        const tokenRes = await apiClient.createExportToken({
+          format,
+          fy: selectedFy,
+          scope: scopeType,
+        });
         const exportTicket = {
           ticket: tokenRes.token,
           ticket_hash: "Authoritative Backend SHA-256 Hash",
@@ -580,12 +588,36 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                     <div style={{ fontWeight: 600, fontSize: 15 }}>
                       {selectedFy} · {scopedRows.length}{" "}
                       {scopedRows.length === 1 ? "Record" : "Records"} Found
+                      {isLive && (
+                        <span style={{ fontSize: 13, fontWeight: 400, color: "var(--muted-foreground)", marginLeft: 6 }}>
+                          (Preview sample)
+                        </span>
+                      )}
                     </div>
                   </div>
                   <Badge variant="outline">
                     {format === "excel" ? "Excel (.xlsx)" : "Demo CSV"}
                   </Badge>
                 </div>
+
+                {isLive && (
+                  <div
+                    className="cf-notice"
+                    style={{
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      borderRadius: 6,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Info size={15} style={{ flexShrink: 0 }} />
+                    <span>
+                      Authoritative Notice: Preview displays sample records for verification. The downloaded export includes the complete authoritative dataset across all records in PostgreSQL.
+                    </span>
+                  </div>
+                )}
 
                 {/* Financial Scope Totals (CF6-01: Split Recognized AR vs Unbilled) */}
                 <div

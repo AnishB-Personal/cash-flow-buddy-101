@@ -46,11 +46,18 @@ import {
   getArAgingReport,
   type ReportFilterScope,
   type AgingBucket,
+  agingDateLabel,
 } from "@/data/reporting";
 import { readInitialTargets, type SalesTarget } from "@/data/targets";
 import { ExportDrawer } from "./export-drawer";
 import { useMockSession } from "./session";
-import { apiClient } from "@/lib/api-client";
+import {
+  apiClient,
+  type ReportingSummaryDTO,
+  type ArAgingReportDTO,
+  type ExecutiveAttainmentReportDTO,
+  type CustomerExposureReportDTO,
+} from "@/lib/api-client";
 
 function useOptionalSession() {
   try {
@@ -112,8 +119,16 @@ export function ReportsHub({
   const [liveInvoices, setLiveInvoices] = useState<Invoice[]>([]);
   const [liveTargets, setLiveTargets] = useState<SalesTarget[]>([]);
   const [liveCustomers, setLiveCustomers] = useState<any[]>([]);
+  const [liveSummary, setLiveSummary] = useState<ReportingSummaryDTO | null>(null);
+  const [liveAging, setLiveAging] = useState<ArAgingReportDTO | null>(null);
+  const [liveAttainment, setLiveAttainment] = useState<ExecutiveAttainmentReportDTO | null>(null);
+  const [liveExposure, setLiveExposure] = useState<CustomerExposureReportDTO | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // CF4C5-02: Approved fixed 30 April 2026 reference exclusively for MOCK regression; contract-defined as-of in LIVE
+  const pinnedReportingDate = "2026-04-30";
+  const activeAsOfDate = isLive ? new Date().toISOString().slice(0, 10) : pinnedReportingDate;
 
   useEffect(() => {
     if (!isLive) return;
@@ -121,31 +136,43 @@ export function ReportsHub({
       setLiveInvoices([]);
       setLiveTargets([]);
       setLiveCustomers([]);
+      setLiveSummary(null);
+      setLiveAging(null);
+      setLiveAttainment(null);
+      setLiveExposure(null);
       return;
     }
     setLoading(true);
     setError(null);
     Promise.all([
+      apiClient.getReportingSummary({ fy: selectedFy !== "ALL" ? selectedFy : undefined, as_of_date: activeAsOfDate }),
+      apiClient.getArAging({ fy: selectedFy !== "ALL" ? selectedFy : undefined, as_of_date: activeAsOfDate }),
+      apiClient.getExecutiveAttainment({ fy: selectedFy !== "ALL" ? selectedFy : undefined }),
+      apiClient.getCustomerExposure({ fy: selectedFy !== "ALL" ? selectedFy : undefined, as_of_date: activeAsOfDate }),
       apiClient.getInvoices({ fy: selectedFy !== "ALL" ? selectedFy : undefined, limit: 100 }),
       apiClient.getTargets(selectedFy !== "ALL" ? { fy: selectedFy } : undefined),
       apiClient.getCustomers(),
     ])
-      .then(([invRes, targetRes, custRes]) => {
+      .then(([summaryRes, agingRes, attainmentRes, exposureRes, invRes, targetRes, custRes]) => {
+        setLiveSummary(summaryRes);
+        setLiveAging(agingRes);
+        setLiveAttainment(attainmentRes);
+        setLiveExposure(exposureRes);
         setLiveInvoices(invRes.data);
         setLiveTargets(
           targetRes.targets.map((t) => {
-            const yearly = Number(t.target_amount);
+            const yearly = Number(t.yearly_target || t.target_amount || 0);
             return {
               id: t.id ?? t.user_id,
               user_id: t.user_id,
               user_name: t.full_name || t.username || t.executive_name || `Executive ${t.user_id}`,
               fy_code: t.fy_code,
               yearly_target: yearly,
-              half_yearly_target: yearly / 2,
-              quarterly_target: yearly / 4,
-              monthly_target: yearly / 12,
-              monthly_bottom_line: (yearly / 12) * 0.8,
-              yearly_bottom_line: yearly * 0.8,
+              half_yearly_target: Number(t.half_yearly_target || yearly / 2),
+              quarterly_target: Number(t.quarterly_target || yearly / 4),
+              monthly_target: Number(t.monthly_target || yearly / 12),
+              monthly_bottom_line: Number(t.monthly_bottom_line || (yearly / 12) * 0.8),
+              yearly_bottom_line: Number(t.yearly_bottom_line || yearly * 0.8),
             };
           }),
         );
@@ -157,7 +184,7 @@ export function ReportsHub({
       .finally(() => {
         setLoading(false);
       });
-  }, [isLive, empty, selectedFy]);
+  }, [isLive, empty, selectedFy, activeAsOfDate]);
 
   // Raw Datasets
   const allRecords = useMemo(
@@ -195,34 +222,104 @@ export function ReportsHub({
     [selectedFy, customerFilter, executiveFilter, searchQuery],
   );
 
-  // Pinned Reporting Date for AR Aging
-  const pinnedReportingDate = "2026-04-30";
+  // CF4C5-02: Connect LIVE Reports Hub views to complete authoritative reporting datasets
+  const invoicesReport = useMemo(() => {
+    const rep = getInvoicesReceivablesReport(allRecords, filterScope, isLive ? activeAsOfDate : pinnedReportingDate);
+    if (isLive && liveSummary) {
+      return {
+        ...rep,
+        summary: {
+          ...rep.summary,
+          total_invoiced: Number(liveSummary.total_invoiced),
+          total_exclusive: Number(liveSummary.total_exclusive || 0),
+          total_tax: Number(liveSummary.total_tax || 0),
+          total_outstanding: Number(liveSummary.total_outstanding),
+          total_settled: Number(liveSummary.total_settled),
+          total_cash: Number(liveSummary.total_cash),
+          total_tds: Number(liveSummary.total_tds),
+          collection_rate: Number(liveSummary.collection_rate_pct ?? liveSummary.settlement_ratio_pct ?? 0),
+          count: liveSummary.total_invoices ?? liveSummary.active_invoices_count ?? rep.summary.count,
+        },
+      };
+    }
+    return rep;
+  }, [allRecords, filterScope, pinnedReportingDate, isLive, liveSummary, activeAsOfDate]);
 
-  // Computed Reports
-  const invoicesReport = useMemo(
-    () => getInvoicesReceivablesReport(allRecords, filterScope, pinnedReportingDate),
-    [allRecords, filterScope, pinnedReportingDate],
-  );
+  const paymentsReport = useMemo(() => {
+    const rep = getPaymentsLedgerReport(allRecords, filterScope);
+    if (isLive && liveSummary) {
+      return {
+        ...rep,
+        summary: {
+          ...rep.summary,
+          total_settled: Number(liveSummary.total_settled),
+          total_cash: Number(liveSummary.total_cash),
+          total_tds: Number(liveSummary.total_tds),
+        },
+      };
+    }
+    return rep;
+  }, [allRecords, filterScope, isLive, liveSummary]);
 
-  const paymentsReport = useMemo(
-    () => getPaymentsLedgerReport(allRecords, filterScope),
-    [allRecords, filterScope],
-  );
+  const customerReport = useMemo(() => {
+    const rep = getCustomerExposureReport(allRecords, allCustomers, filterScope, isLive ? activeAsOfDate : pinnedReportingDate);
+    if (isLive && liveExposure) {
+      return {
+        ...rep,
+        summary: {
+          ...rep.summary,
+          total_outstanding: Number(liveExposure.total_outstanding),
+          customer_count: liveExposure.customers?.length || rep.summary.customer_count,
+        },
+      };
+    }
+    return rep;
+  }, [allRecords, allCustomers, filterScope, pinnedReportingDate, isLive, liveExposure, activeAsOfDate]);
 
-  const customerReport = useMemo(
-    () => getCustomerExposureReport(allRecords, allCustomers, filterScope, pinnedReportingDate),
-    [allRecords, allCustomers, filterScope, pinnedReportingDate],
-  );
+  const executiveReport = useMemo(() => {
+    const rep = getExecutiveAttainmentReport(allRecords, allTargets, filterScope);
+    if (isLive && liveAttainment) {
+      const summ: any = liveAttainment.summary || liveAttainment.overall;
+      if (summ) {
+        return {
+          ...rep,
+          summary: {
+            ...rep.summary,
+            team_target: Number(summ.total_target || 0),
+            team_actual_sales: Number(summ.total_actual_sales ?? summ.total_achieved ?? 0),
+            overall_achievement_pct: summ.overall_achievement_pct ?? summ.attainment_pct ?? 0,
+            excluded_unbilled_sales: Number(summ.excluded_unbilled_sales ?? 0),
+          },
+        };
+      }
+    }
+    return rep;
+  }, [allRecords, allTargets, filterScope, isLive, liveAttainment]);
 
-  const executiveReport = useMemo(
-    () => getExecutiveAttainmentReport(allRecords, allTargets, filterScope),
-    [allRecords, allTargets, filterScope],
-  );
-
-  const agingReport = useMemo(
-    () => getArAgingReport(allRecords, pinnedReportingDate, filterScope),
-    [allRecords, pinnedReportingDate, filterScope],
-  );
+  const agingReport = useMemo(() => {
+    const rep = getArAgingReport(allRecords, isLive ? activeAsOfDate : pinnedReportingDate, filterScope);
+    if (isLive && liveAging) {
+      const totalRec = Number(liveAging.total_outstanding || (liveAging as any).total_receivables || 0);
+      const totalOverdue = Number(liveSummary?.total_overdue || (liveAging as any).total_overdue || 0);
+      const mappedBuckets = (liveAging.buckets || []).map(b => ({
+        bucket: (b.label || b.bucket || "") as any,
+        amount: Number(b.amount || 0),
+        count: b.invoice_count ?? b.count ?? 0,
+      }));
+      return {
+        ...rep,
+        summary: {
+          ...rep.summary,
+          as_of_date: liveAging.as_of_date || activeAsOfDate,
+          as_of_label: agingDateLabel(liveAging.as_of_date || activeAsOfDate),
+          total_receivables: totalRec,
+          total_overdue: totalOverdue,
+          buckets: mappedBuckets.length > 0 ? mappedBuckets : rep.summary.buckets,
+        },
+      };
+    }
+    return rep;
+  }, [allRecords, pinnedReportingDate, filterScope, isLive, liveAging, liveSummary, activeAsOfDate]);
 
   // Reset Filters Handler
   function handleResetFilters() {
