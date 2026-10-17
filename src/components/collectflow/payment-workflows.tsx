@@ -1,11 +1,12 @@
 import { useState, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArrowUpRight, X, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ArrowUpRight, X, CheckCircle2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { exactMoney, money, type Invoice } from '@/data/collectflow';
 import { dateLabel, canPay } from '@/data/records';
+import { apiClient } from '@/lib/api-client';
 import { useMockSession } from './session';
 import { FormSection, FieldError } from './demo-controls';
 import type { PaymentItem } from './payments-ledger';
@@ -29,6 +30,9 @@ export function RecordPaymentDrawer({
   close: () => void;
 }) {
   const { role, fy, revision, confirmPayment } = useMockSession();
+  const isLive = apiClient.getMode() === 'live';
+  const currentUser = apiClient.getCurrentUser();
+  const activeRole = (isLive && currentUser?.role) ? currentUser.role : role;
   const presets = getPaymentPresets(invoice);
 
   const [input, setInput] = useState<PaymentCreateInput>(presets[0]!.values);
@@ -41,11 +45,11 @@ export function RecordPaymentDrawer({
   const [dirty, setDirty] = useState(false);
 
   const submitting = useRef(false);
-  const origin = useRef({ revision, fy, role });
+  const origin = useRef({ revision, fy, role: activeRole });
   const trigger = useRef<HTMLElement | null>(
     typeof document === 'undefined' ? null : (document.activeElement as HTMLElement)
   );
-  const allowed = canPay(role);
+  const allowed = isLive ? (activeRole === 'admin' || activeRole === 'finance') : canPay(role);
 
   // Real-time calculation helpers
   const cash = Number(input.payment_amount || 0);
@@ -71,6 +75,9 @@ export function RecordPaymentDrawer({
     if (totalSettling <= 0) {
       errs['general'] = 'Payment amount or TDS deduction must be greater than zero';
     }
+    if (isLive && tds > 0 && (!input.tds_section || !input.tds_section.trim())) {
+      errs['tds_section'] = 'TDS section is required when TDS deduction is greater than zero';
+    }
     if (isOverpaid) {
       const formattedCash = cash.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const formattedTds = tds.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -92,6 +99,48 @@ export function RecordPaymentDrawer({
     if (!validate()) return;
     setErrors({});
 
+    if (isLive) {
+      const curCash = roundCurrency(Number(invoice.total_cash_paid || 0));
+      const curTds = roundCurrency(Number(invoice.total_tds_deducted || 0));
+      const curSettled = roundCurrency(Number(invoice.total_paid || 0));
+      const resultingCash = roundCurrency(curCash + cash);
+      const resultingTds = roundCurrency(curTds + tds);
+      const resultingTotalPaid = roundCurrency(curSettled + totalSettling);
+      const resultingStatus = projectedRemaining <= 0 ? 'PAID' : 'PARTIAL';
+
+      const rev: PaymentReview = {
+        invoice,
+        input,
+        resulting_cash_paid: resultingCash,
+        resulting_tds_deducted: resultingTds,
+        resulting_total_paid: resultingTotalPaid,
+        resulting_outstanding: projectedRemaining,
+        resulting_status: resultingStatus,
+        supported: true,
+        message: `Live settlement: Recording Cash ₹${cash.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (TDS: ₹${tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}) against ${invoice.invoice_number || invoice.po_number}. Resulting outstanding: ₹${projectedRemaining.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`,
+        fingerprint: JSON.stringify([input.invoice_id, cash, tds, input.payment_mode, input.payment_date]),
+        changes: [
+          { field: 'cash', label: 'Cash Collected', previous: exactMoney(curCash), current: exactMoney(resultingCash) },
+          { field: 'tds', label: 'TDS Recognized', previous: exactMoney(curTds), current: exactMoney(resultingTds) },
+          { field: 'settled', label: 'Total Settled', previous: exactMoney(curSettled), current: exactMoney(resultingTotalPaid) },
+          { field: 'outstanding', label: 'Outstanding Balance', previous: exactMoney(invoice.outstanding_balance), current: exactMoney(projectedRemaining) },
+          { field: 'status', label: 'Invoice Status', previous: invoice.computed_status, current: resultingStatus },
+        ],
+        impact: {
+          cashDelta: cash,
+          tdsDelta: tds,
+          totalSettling,
+          resultingOutstanding: projectedRemaining,
+          resultingStatus,
+        },
+      };
+      setReview(rev);
+      setStep('review');
+      setError('');
+      origin.current = { revision, fy, role: activeRole };
+      return;
+    }
+
     try {
       const rev = reviewPayment(input, role, [invoice]);
       setReview(rev);
@@ -109,16 +158,31 @@ export function RecordPaymentDrawer({
     setPending(true);
     setError('');
     try {
-      if (
-        origin.current.revision !== revision ||
-        origin.current.fy !== fy ||
-        origin.current.role !== role
-      ) {
-        throw new Error('Context changed. Return to the form and review again.');
+      if (isLive) {
+        await apiClient.createPayment({
+          invoice_id: invoice.id,
+          payment_amount: cash,
+          tds_amount: tds,
+          tds_section: tds > 0 ? (input.tds_section || null) : null,
+          payment_date: input.payment_date,
+          payment_mode: input.payment_mode,
+          remittance_number: input.remittance_number || null,
+          notes: input.notes || null,
+        });
+        setStep('result');
+        setDirty(false);
+      } else {
+        if (
+          origin.current.revision !== revision ||
+          origin.current.fy !== fy ||
+          origin.current.role !== role
+        ) {
+          throw new Error('Context changed. Return to the form and review again.');
+        }
+        await confirmPayment(review);
+        setStep('result');
+        setDirty(false);
       }
-      await confirmPayment(review);
-      setStep('result');
-      setDirty(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Submission failed. No changes applied. Try again.');
     } finally {
@@ -478,7 +542,7 @@ export function RecordPaymentDrawer({
 
                 {step === 'confirm' && (
                   <p className="cf-drawer-message">
-                    Confirm recording payment against {invoice.invoice_number} in this isolated demo?
+                    Confirm recording payment against {invoice.invoice_number} {isLive ? 'on live PostgreSQL ledger?' : 'in this isolated demo?'}
                   </p>
                 )}
 
@@ -556,9 +620,27 @@ export function PaymentCorrectionDrawer({
   close,
 }: PaymentCorrectionDrawerProps) {
   const { role, revision, demo, deletePayment, confirmPayment } = useMockSession();
+  const isLive = apiClient.getMode() === 'live';
+  const currentUser = apiClient.getCurrentUser();
+  const activeRole = (isLive && currentUser?.role) ? currentUser.role : role;
+  const allowed = isLive ? (activeRole === 'admin' || activeRole === 'finance') : canPay(role);
+
   const currentInvoice = demo.invoices.find(inv => inv.id === payment.invoice_id) ?? payment.invoice;
   const presets = getPaymentPresets(currentInvoice);
 
+  // Live Mode State
+  const [liveStep, setLiveStep] = useState<'form' | 'review' | 'confirm' | 'result'>('form');
+  const [liveReason, setLiveReason] = useState<string>('');
+  const [liveCash, setLiveCash] = useState<number>(payment.payment_amount);
+  const [liveTds, setLiveTds] = useState<number>(payment.tds_amount);
+  const [liveTdsSec, setLiveTdsSec] = useState<string>(payment.tds_section || '194C');
+  const [liveDate, setLiveDate] = useState<string>(payment.payment_date || new Date().toISOString().slice(0, 10));
+  const [liveMode, setLiveMode] = useState<string>(payment.payment_mode || 'NEFT');
+  const [liveRemit, setLiveRemit] = useState<string>(payment.remittance_number ? `${payment.remittance_number}-CORR` : '');
+  const [liveNotes, setLiveNotes] = useState<string>(`Correction for Payment #${payment.id}`);
+  const [liveResult, setLiveResult] = useState<{ reversal_id: number; replacement_id?: number | null; invoice_summary?: any } | null>(null);
+
+  // Mock Mode State
   const [step, setStep] = useState<CorrectionStep>('step1-confirm');
   const [input, setInput] = useState<PaymentCreateInput>({
     invoice_id: payment.invoice_id,
@@ -581,7 +663,68 @@ export function PaymentCorrectionDrawer({
   const trigger = useRef<HTMLElement | null>(
     typeof document === 'undefined' ? null : (document.activeElement as HTMLElement)
   );
-  const allowed = canPay(role);
+
+  // Live calculations
+  const origCash = payment.payment_amount;
+  const origTds = payment.tds_amount;
+  const origTotal = payment.net_settled;
+
+  const repCash = Number(liveCash || 0);
+  const repTds = Number(liveTds || 0);
+  const repTotal = roundCurrency(repCash + repTds);
+
+  const invOutstanding = Number(currentInvoice.outstanding_balance || 0);
+  const liveResultingOutstanding = roundCurrency(invOutstanding + origTotal - repTotal);
+  const liveResultingStatus = liveResultingOutstanding <= 0 ? 'PAID' : (Number(currentInvoice.total_amount || 0) - liveResultingOutstanding > 0 ? 'PARTIAL' : 'PENDING');
+  const isLiveOverpaid = liveResultingOutstanding < 0;
+
+  function validateLive(): boolean {
+    const errs: Record<string, string> = {};
+    if (!liveReason || liveReason.trim().length < 5) {
+      errs['reason'] = 'Correction reason is mandatory (minimum 5 characters for statutory audit log)';
+    }
+    if (repCash < 0) {
+      errs['cash'] = 'Cash amount cannot be negative';
+    }
+    if (repTds < 0) {
+      errs['tds'] = 'TDS amount cannot be negative';
+    }
+    if (repTds > 0 && (!liveTdsSec || !liveTdsSec.trim())) {
+      errs['tds_sec'] = 'TDS section is required when TDS deduction is greater than zero';
+    }
+    if (isLiveOverpaid) {
+      errs['general'] = `Correction would exceed invoice balance. Resulting outstanding cannot be negative.`;
+    }
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
+  async function executeLiveCorrection() {
+    if (submitting.current) return;
+    submitting.current = true;
+    setPending(true);
+    setError('');
+    try {
+      const res = await apiClient.correctPayment(payment.id, {
+        reason: liveReason.trim(),
+        corrected_payment_amount: repCash,
+        corrected_tds_amount: repTds,
+        corrected_tds_section: repTds > 0 ? liveTdsSec : undefined,
+        corrected_payment_date: liveDate,
+        corrected_payment_mode: liveMode,
+        corrected_remittance_number: liveRemit || undefined,
+        notes: liveNotes || undefined,
+      });
+      setLiveResult(res);
+      setLiveStep('result');
+      setDirty(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Correction failed on server');
+    } finally {
+      setPending(false);
+      submitting.current = false;
+    }
+  }
 
   // Calculations for Step 2
   const cash = Number(input.payment_amount || 0);
@@ -598,6 +741,18 @@ export function PaymentCorrectionDrawer({
 
   function requestClose() {
     if (pending) return;
+    if (isLive) {
+      if (liveStep === 'result') {
+        close();
+        return;
+      }
+      if (dirty && liveStep !== 'result') {
+        setDiscard(true);
+      } else {
+        close();
+      }
+      return;
+    }
     if (step === 'result-success' || step === 'result-deleted-only') {
       close();
       return;
@@ -706,20 +861,368 @@ export function PaymentCorrectionDrawer({
           </header>
 
           <div className="cf-drawer-body">
-            {/* 2-step progress bar */}
-            <div className="cf-demo-progress" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
-              <span aria-current={isStep1 ? 'step' : undefined}>
-                {step1Completed ? '✓ 1. Physical Deletion' : '1. Physical Deletion'}
-              </span>
-              <span aria-current={isStep2 ? 'step' : undefined}>
-                2. Replacement Record
-              </span>
-            </div>
+            {/* Progress bar */}
+            {isLive ? (
+              <div className="cf-demo-progress">
+                {['Form', 'Review', 'Confirm', 'Result'].map(label => (
+                  <span
+                    key={label}
+                    aria-current={label.toLowerCase() === liveStep ? 'step' : undefined}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="cf-demo-progress" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+                <span aria-current={isStep1 ? 'step' : undefined}>
+                  {step1Completed ? '✓ 1. Physical Deletion' : '1. Physical Deletion'}
+                </span>
+                <span aria-current={isStep2 ? 'step' : undefined}>
+                  2. Replacement Record
+                </span>
+              </div>
+            )}
 
             {!allowed ? (
               <p role="alert" className="cf-field-error">
                 This role cannot perform this action. Permissions require finance or admin.
               </p>
+            ) : isLive ? (
+              /* LIVE MODE 4-STEP ATOMIC CORRECTION */
+              liveStep === 'form' ? (
+                <form
+                  onSubmit={e => {
+                    e.preventDefault();
+                    if (!validateLive()) return;
+                    setLiveStep('review');
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      padding: 14,
+                      backgroundColor: 'var(--accent)',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      margin: '16px 0',
+                    }}
+                  >
+                    <ShieldCheck size={22} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 2 }} />
+                    <div>
+                      <strong style={{ display: 'block', fontSize: 14, color: 'var(--foreground)', marginBottom: 4 }}>
+                        Atomic Accounting Correction (PostgreSQL)
+                      </strong>
+                      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: 'var(--muted-foreground)' }}>
+                        Non-destructive operation. A compensating REVERSAL event will be recorded against Payment #{payment.id}, followed by an optional replacement settlement. Historical records remain immutable.
+                      </p>
+                    </div>
+                  </div>
+
+                  <FormSection title="Original payment to correct">
+                    <dl className="cf-review-values">
+                      <div>
+                        <dt>Payment ID</dt>
+                        <dd>#{payment.id}</dd>
+                      </div>
+                      <div>
+                        <dt>Mode & date</dt>
+                        <dd>{payment.payment_mode} · {dateLabel(payment.payment_date)}</dd>
+                      </div>
+                      <div>
+                        <dt>Remittance number</dt>
+                        <dd>{payment.remittance_number || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt>Cash paid</dt>
+                        <dd>{exactMoney(origCash)}</dd>
+                      </div>
+                      <div>
+                        <dt>TDS deducted</dt>
+                        <dd>{exactMoney(origTds)} ({payment.tds_section || 'None'})</dd>
+                      </div>
+                      <div>
+                        <dt>Total originally settled</dt>
+                        <dd>{exactMoney(origTotal)}</dd>
+                      </div>
+                    </dl>
+                  </FormSection>
+
+                  <FormSection title="Correction details & replacement settlement">
+                    <div style={{ marginBottom: 12 }}>
+                      <label htmlFor="corr-live-reason">Correction reason (mandatory for audit log) *</label>
+                      <Textarea
+                        id="corr-live-reason"
+                        placeholder="e.g. Bank reconciliation discrepancy, client deducted 194C TDS, or refunded..."
+                        value={liveReason}
+                        aria-invalid={Boolean(errors['reason'])}
+                        onChange={e => {
+                          setLiveReason(e.target.value);
+                          setDirty(true);
+                        }}
+                      />
+                      <FieldError id="error-corr-reason" message={errors['reason']} />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setLiveCash(0);
+                          setLiveTds(0);
+                          setDirty(true);
+                        }}
+                      >
+                        Full Reversal (₹0.00 replacement)
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setLiveCash(origCash);
+                          setLiveTds(origTds);
+                          setLiveTdsSec(payment.tds_section || '194C');
+                          setDirty(true);
+                        }}
+                      >
+                        Reset to original values
+                      </Button>
+                    </div>
+
+                    <div className="cf-reference-fields">
+                      <div>
+                        <label htmlFor="corr-live-cash">Corrected cash amount (INR)</label>
+                        <Input
+                          id="corr-live-cash"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={liveCash}
+                          aria-invalid={Boolean(errors['cash'])}
+                          onChange={e => {
+                            setLiveCash(Number(e.target.value));
+                            setDirty(true);
+                          }}
+                        />
+                        <FieldError id="error-corr-cash" message={errors['cash']} />
+                      </div>
+
+                      <div>
+                        <label htmlFor="corr-live-tds">Corrected TDS amount (INR)</label>
+                        <Input
+                          id="corr-live-tds"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={liveTds}
+                          aria-invalid={Boolean(errors['tds'])}
+                          onChange={e => {
+                            setLiveTds(Number(e.target.value));
+                            setDirty(true);
+                          }}
+                        />
+                        <FieldError id="error-corr-tds" message={errors['tds']} />
+                      </div>
+
+                      <div>
+                        <label htmlFor="corr-live-tds-sec">TDS section</label>
+                        <select
+                          id="corr-live-tds-sec"
+                          value={liveTdsSec}
+                          onChange={e => {
+                            setLiveTdsSec(e.target.value);
+                            setDirty(true);
+                          }}
+                        >
+                          <option value="">None / Not Applicable</option>
+                          <option value="194C">194C — Company Contractor (2%)</option>
+                          <option value="194J">194J — Professional / Technical (10%)</option>
+                          <option value="194J(b)">194J(b) — Technical Services (2%)</option>
+                        </select>
+                        <FieldError id="error-corr-tds-sec" message={errors['tds_sec']} />
+                      </div>
+
+                      <div>
+                        <label htmlFor="corr-live-mode">Payment mode</label>
+                        <select
+                          id="corr-live-mode"
+                          value={liveMode}
+                          onChange={e => {
+                            setLiveMode(e.target.value);
+                            setDirty(true);
+                          }}
+                        >
+                          {VALID_PAYMENT_MODES.map(mode => (
+                            <option key={mode} value={mode}>
+                              {mode}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label htmlFor="corr-live-date">Payment date</label>
+                        <Input
+                          id="corr-live-date"
+                          type="date"
+                          value={liveDate}
+                          onChange={e => {
+                            setLiveDate(e.target.value);
+                            setDirty(true);
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="corr-live-remit">Remittance number</label>
+                        <Input
+                          id="corr-live-remit"
+                          value={liveRemit}
+                          onChange={e => {
+                            setLiveRemit(e.target.value);
+                            setDirty(true);
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 12 }}>
+                      <label htmlFor="corr-live-notes">Remarks / Notes</label>
+                      <Textarea
+                        id="corr-live-notes"
+                        value={liveNotes}
+                        onChange={e => {
+                          setLiveNotes(e.target.value);
+                          setDirty(true);
+                        }}
+                      />
+                    </div>
+                  </FormSection>
+
+                  <div
+                    style={{
+                      padding: 12,
+                      background: isLiveOverpaid ? 'var(--destructive-light, #fee2e2)' : 'var(--accent)',
+                      borderRadius: 6,
+                      margin: '16px 0',
+                      fontSize: 13,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span>Proposed replacement total:</span>
+                      <strong>{exactMoney(repTotal)}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Resulting invoice outstanding balance:</span>
+                      <strong style={{ color: isLiveOverpaid ? 'var(--destructive)' : undefined }}>
+                        {exactMoney(liveResultingOutstanding)}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {errors['general'] && (
+                    <p role="alert" className="cf-field-error">
+                      {errors['general']}
+                    </p>
+                  )}
+
+                  <div className="cf-demo-actions">
+                    <Button type="submit" disabled={isLiveOverpaid}>
+                      Review correction <ArrowUpRight size={16} />
+                    </Button>
+                  </div>
+                </form>
+              ) : liveStep === 'review' || liveStep === 'confirm' ? (
+                <div>
+                  <FormSection title="Financial comparison & audit trail">
+                    <dl className="cf-review-values">
+                      <div>
+                        <dt>Compensating reversal</dt>
+                        <dd>
+                          <span style={{ color: 'var(--destructive, #dc2626)' }}>
+                            -{exactMoney(origTotal)}
+                          </span>
+                          <small>Reverses Payment #{payment.id} (Cash: -{exactMoney(origCash)}, TDS: -{exactMoney(origTds)})</small>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Replacement settlement</dt>
+                        <dd>
+                          {repTotal > 0 ? (
+                            <span style={{ color: 'var(--success, #16a34a)' }}>
+                              +{exactMoney(repTotal)}
+                            </span>
+                          ) : (
+                            <span>₹0.00 (Full Reversal)</span>
+                          )}
+                          <small>Cash: +{exactMoney(repCash)}, TDS: +{exactMoney(repTds)}</small>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Net balance adjustment</dt>
+                        <dd>
+                          <strong>{exactMoney(liveResultingOutstanding)}</strong>
+                          <small>Resulting invoice status: {liveResultingStatus}</small>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Mandatory audit reason</dt>
+                        <dd>{liveReason}</dd>
+                      </div>
+                    </dl>
+                  </FormSection>
+
+                  {liveStep === 'confirm' && (
+                    <p className="cf-drawer-message">
+                      Confirm committing this atomic payment correction to the live PostgreSQL database?
+                    </p>
+                  )}
+
+                  <div className="cf-demo-actions">
+                    <Button
+                      variant="outline"
+                      disabled={pending}
+                      onClick={() => setLiveStep(liveStep === 'confirm' ? 'review' : 'form')}
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      disabled={pending}
+                      onClick={() => {
+                        if (liveStep === 'review') setLiveStep('confirm');
+                        else void executeLiveCorrection();
+                      }}
+                    >
+                      {pending
+                        ? 'Committing…'
+                        : liveStep === 'review'
+                        ? 'Continue to confirmation'
+                        : 'Confirm correction'}
+                    </Button>
+                  </div>
+                </div>
+              ) : liveStep === 'result' ? (
+                <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+                  <CheckCircle2
+                    size={48}
+                    style={{ color: 'var(--primary)', margin: '0 auto 16px' }}
+                  />
+                  <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
+                    Payment #{payment.id} Corrected Successfully
+                  </h3>
+                  <p className="cf-muted" style={{ maxWidth: 440, margin: '0 auto 24px', fontSize: 14 }}>
+                    Reversal event #{liveResult?.reversal_id} recorded. {liveResult?.replacement_id ? `Replacement payment #${liveResult.replacement_id} created.` : 'Settlement fully reversed.'} Invoice outstanding balance is now {exactMoney(liveResultingOutstanding)} ({liveResultingStatus}).
+                  </p>
+                  <Button onClick={close}>
+                    Return to ledger
+                  </Button>
+                </div>
+              ) : null
             ) : isStep1 ? (
               /* STEP 1: PHYSICAL DELETION */
               <div style={{ marginTop: 16 }}>

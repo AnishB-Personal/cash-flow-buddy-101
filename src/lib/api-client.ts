@@ -582,6 +582,45 @@ class ApiClient {
       body: data,
     });
   }
+
+  public async getPayments(params?: {
+    page?: number;
+    limit?: number;
+    fy?: string;
+    invoice_id?: number;
+    customer_id?: number;
+    payment_mode?: string;
+    transaction_type?: string;
+    date_from?: string;
+    date_to?: string;
+  }): Promise<{ page: number; limit: number; total: number; total_pages: number; summary: PaymentSummaryDTO; data: PaymentDTO[] }> {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
+    if (params?.invoice_id) searchParams.set("invoice_id", String(params.invoice_id));
+    if (params?.customer_id) searchParams.set("customer_id", String(params.customer_id));
+    if (params?.payment_mode) searchParams.set("payment_mode", params.payment_mode);
+    if (params?.transaction_type) searchParams.set("transaction_type", params.transaction_type);
+    if (params?.date_from) searchParams.set("date_from", params.date_from);
+    if (params?.date_to) searchParams.set("date_to", params.date_to);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return await this.request<{ page: number; limit: number; total: number; total_pages: number; summary: PaymentSummaryDTO; data: PaymentDTO[] }>(`/api/payments${query}`);
+  }
+
+  public async createPayment(data: PaymentCreateDTO): Promise<{ success: boolean; payment_id: number; message: string; invoice_summary?: any; summary?: any }> {
+    return await this.request<{ success: boolean; payment_id: number; message: string; invoice_summary?: any; summary?: any }>("/api/payments", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  public async correctPayment(id: number, data: PaymentCorrectionDTO): Promise<{ success: boolean; reversal_id: number; replacement_id?: number | null; message: string; invoice_summary?: any; summary?: any }> {
+    return await this.request<{ success: boolean; reversal_id: number; replacement_id?: number | null; message: string; invoice_summary?: any; summary?: any }>(`/api/payments/${id}/correct`, {
+      method: "POST",
+      body: data,
+    });
+  }
 }
 
 export interface ManagedUserDTO {
@@ -716,6 +755,58 @@ export interface InvoiceCreateDTO {
     unit_price?: number | undefined;
     tax_rate?: number | undefined;
   }[] | undefined;
+}
+
+export interface PaymentDTO {
+  id: number;
+  invoice_id: number;
+  parent_transaction_id?: number | null | undefined;
+  transaction_type: 'PAYMENT' | 'REVERSAL' | 'ADJUSTMENT';
+  cash_amount: string;
+  payment_amount: string;
+  tds_amount: string;
+  total_settled: string;
+  net_settled: string;
+  tds_section?: string | null | undefined;
+  payment_date: string;
+  payment_mode: string;
+  remittance_number?: string | null | undefined;
+  notes?: string | null | undefined;
+  recorded_by: number;
+  created_at?: string | null | undefined;
+  invoice_number: string;
+  customer_id: number;
+  customer_name: string;
+  fy_code: string;
+}
+
+export interface PaymentSummaryDTO {
+  total_cash: string;
+  total_tds: string;
+  total_settled: string;
+}
+
+export interface PaymentCreateDTO {
+  invoice_id: number;
+  payment_amount: number | string;
+  tds_amount?: number | string | undefined;
+  tds_section?: string | null | undefined;
+  payment_date: string;
+  payment_mode?: string | undefined;
+  remittance_number?: string | null | undefined;
+  notes?: string | null | undefined;
+  idempotency_key?: string | null | undefined;
+}
+
+export interface PaymentCorrectionDTO {
+  reason: string;
+  corrected_payment_amount: number | string;
+  corrected_tds_amount?: number | string | undefined;
+  corrected_tds_section?: string | null | undefined;
+  corrected_payment_date: string;
+  corrected_payment_mode?: string | undefined;
+  corrected_remittance_number?: string | null | undefined;
+  notes?: string | null | undefined;
 }
 
 export const apiClient = new ApiClient();

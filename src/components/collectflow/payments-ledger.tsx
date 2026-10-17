@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { FilterChoice, EmptyState } from './controls';
 import { money, type Invoice } from '@/data/collectflow';
 import { dateLabel, canPay, type Role } from '@/data/records';
+import { apiClient } from '@/lib/api-client';
 
 export interface PaymentItem {
   id: number;
@@ -62,17 +63,29 @@ export function PaymentsLedger({
   const [size, setSize] = useState('10');
   const [menu, setMenu] = useState<number | null>(null);
 
+  const isLive = apiClient.getMode() === 'live';
+  const currentUser = apiClient.getCurrentUser();
+  const effectiveRole = (isLive && currentUser?.role) ? currentUser.role : role;
+  const canModify = canPay(effectiveRole);
+
   // Derive flat payment list for the active FY
   const allPayments: PaymentItem[] = records
-    .filter(inv => inv.fy_code === fy && inv.computed_status !== 'CANCELLED')
+    .filter(inv => (fy === 'ALL' || fy === 'All' || !fy || inv.fy_code === fy) && inv.computed_status !== 'CANCELLED')
     .flatMap(inv =>
-      (inv.payments || []).map((p: any) => ({
-        ...p,
-        invoice: inv,
-        invoice_number: inv.invoice_number ?? inv.po_number,
-        customer_name: inv.customer_name,
-        net_settled: (p.payment_amount || 0) + (p.tds_amount || 0),
-      }))
+      (inv.payments || []).map((p: any) => {
+        const cashAmt = Number(p.payment_amount ?? p.cash_amount ?? 0);
+        const tdsAmt = Number(p.tds_amount ?? 0);
+        const netAmt = p.total_settled != null ? Number(p.total_settled) : (cashAmt + tdsAmt);
+        return {
+          ...p,
+          payment_amount: cashAmt,
+          tds_amount: tdsAmt,
+          invoice: inv,
+          invoice_number: inv.invoice_number ?? inv.po_number,
+          customer_name: inv.customer_name,
+          net_settled: netAmt,
+        };
+      })
     );
 
   // Aggregate totals
@@ -334,7 +347,7 @@ export function PaymentsLedger({
                           >
                             View Payment History
                           </Button>
-                          {canPay(role) && (
+                          {canModify && (
                             <Button
                               variant="ghost"
                               onClick={() => {
@@ -418,7 +431,7 @@ export function PaymentsLedger({
                     >
                       View Invoice Details
                     </Button>
-                    {canPay(role) && (
+                    {canModify && (
                       <Button
                         variant="ghost"
                         onClick={() => {

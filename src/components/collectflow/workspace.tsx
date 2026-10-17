@@ -280,10 +280,6 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     );
   }
   function startRecordPayment(row: Invoice) {
-    if (isLive) {
-      setNotice("Payment recording and settlements are deferred to Stage 4C.4 under PostgreSQL architecture.");
-      return;
-    }
     setRecord(null);
     setPaymentInvoice(row);
   }
@@ -694,14 +690,14 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                   )}
                   {page === "Payments" && (
                     <PaymentsLedger
-                      records={demo.invoices}
+                      records={isLive ? liveInvoices : demo.invoices}
                       fy={fy}
                       role={role}
                       empty={state === "Empty"}
                       openInvoice={open}
                       container={mobile ? frame : undefined}
                       unavailable={unavailable}
-                      onCorrectPayment={isLive ? () => setNotice("Payment corrections are deferred to Stage 4C.4 under PostgreSQL architecture.") : setCorrectionPayment}
+                      onCorrectPayment={setCorrectionPayment}
                     />
                   )}
                   {page === "Dashboard" && (
@@ -1006,7 +1002,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
           <RecordPaymentDrawer
             invoice={paymentInvoice}
             container={mobile ? frame : undefined}
-            close={() => setPaymentInvoice(null)}
+            close={() => {
+              setPaymentInvoice(null);
+              if (isLive) void fetchLiveRecords();
+            }}
           />
         )}
         {cancelInvoice && (
@@ -1023,7 +1022,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
           <PaymentCorrectionDrawer
             payment={correctionPayment}
             container={mobile ? frame : undefined}
-            close={() => setCorrectionPayment(null)}
+            close={() => {
+              setCorrectionPayment(null);
+              if (isLive) void fetchLiveRecords();
+            }}
           />
         )}
         {exportOpen && (
