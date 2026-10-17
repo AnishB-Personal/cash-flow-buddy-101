@@ -218,6 +218,20 @@ test.describe("Stage 4C.4: LIVE Payments, TDS Ledger & Non-Destructive Adjustmen
       expect(cancelRes.status()).toBe(200);
       const cancelData = await cancelRes.json();
       expect(cancelData.lifecycle_status).toBe("CANCELLED");
+
+      // 11. CF4C4-03: Verify LIVE payments ledger retains history after invoice cancellation
+      await mainNav.getByRole("button", { name: "Invoices" }).click();
+      await mainNav.getByRole("button", { name: "Payments" }).click();
+
+      // Transactions remain visible in UI with badges
+      await expect(page.getByText(remittanceNo).first()).toBeVisible();
+      await expect(page.getByText("REVERSAL").first()).toBeVisible();
+      await expect(page.getByText("Cancelled").first()).toBeVisible();
+
+      // Action menus: Neither the reversal nor the payment for cancelled invoice should offer correction
+      const menuBtn = page.getByRole("button", { name: `Actions for payment ${remittanceNo}` }).first();
+      await menuBtn.click();
+      await expect(page.getByRole("button", { name: /Correct \/ Reverse Payment/i })).not.toBeVisible();
     } finally {
       // Cleanup: delete synthetic customer
       await request.delete(`${BACKEND_URL}/api/customers/${customerId}`, {

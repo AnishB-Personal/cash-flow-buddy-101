@@ -43,6 +43,7 @@ export function RecordPaymentDrawer({
   const [pending, setPending] = useState(false);
   const [discard, setDiscard] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [idempotencyKey] = useState(() => `pay-idem-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
 
   const submitting = useRef(false);
   const origin = useRef({ revision, fy, role: activeRole });
@@ -168,6 +169,7 @@ export function RecordPaymentDrawer({
           payment_mode: input.payment_mode,
           remittance_number: input.remittance_number || null,
           notes: input.notes || null,
+          idempotency_key: idempotencyKey,
         });
         setStep('result');
         setDirty(false);

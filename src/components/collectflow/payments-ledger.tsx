@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ArrowUpDown,
   ArrowUpRight,
@@ -22,7 +22,11 @@ import { apiClient } from '@/lib/api-client';
 export interface PaymentItem {
   id: number;
   invoice_id: number;
+  parent_transaction_id?: number | null;
+  is_superseded?: boolean;
+  transaction_type?: 'PAYMENT' | 'REVERSAL' | 'ADJUSTMENT';
   payment_amount: number;
+  cash_amount?: number;
   tds_amount: number;
   tds_section: string | null;
   payment_date: string;
@@ -31,6 +35,7 @@ export interface PaymentItem {
   notes?: string | null;
   invoice: Invoice;
   invoice_number: string;
+  invoice_lifecycle_status?: string | null;
   customer_name: string;
   net_settled: number;
 }
@@ -68,9 +73,71 @@ export function PaymentsLedger({
   const effectiveRole = (isLive && currentUser?.role) ? currentUser.role : role;
   const canModify = canPay(effectiveRole);
 
-  // Derive flat payment list for the active FY
-  const allPayments: PaymentItem[] = records
-    .filter(inv => (fy === 'ALL' || fy === 'All' || !fy || inv.fy_code === fy) && inv.computed_status !== 'CANCELLED')
+  const [livePayments, setLivePayments] = useState<PaymentItem[]>([]);
+  const [liveSummary, setLiveSummary] = useState<{ totalCash: number; totalTds: number; totalNet: number } | null>(null);
+  const [liveLoaded, setLiveLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!isLive) return;
+    let active = true;
+    const fetchPayments = async () => {
+      try {
+        const fyFilter = (fy && fy !== 'ALL' && fy !== 'All') ? fy : undefined;
+        const res = await apiClient.getPayments({ fy: fyFilter });
+        if (!active) return;
+        const items: PaymentItem[] = (res.data || []).map((p: any) => {
+          const cashAmt = Number(p.cash_amount ?? p.payment_amount ?? 0);
+          const tdsAmt = Number(p.tds_amount ?? 0);
+          const netAmt = p.total_settled != null ? Number(p.total_settled) : (cashAmt + tdsAmt);
+          return {
+            id: p.id,
+            invoice_id: p.invoice_id,
+            parent_transaction_id: p.parent_transaction_id,
+            is_superseded: p.is_superseded ?? false,
+            transaction_type: p.transaction_type || 'PAYMENT',
+            payment_amount: cashAmt,
+            cash_amount: cashAmt,
+            tds_amount: tdsAmt,
+            tds_section: p.tds_section || null,
+            payment_date: p.payment_date,
+            payment_mode: p.payment_mode || 'NEFT',
+            remittance_number: p.remittance_number || null,
+            notes: p.notes || null,
+            invoice: {
+              id: p.invoice_id,
+              invoice_number: p.invoice_number,
+              po_number: p.invoice_number,
+              customer_name: p.customer_name,
+              computed_status: p.invoice_lifecycle_status || 'ISSUED',
+              fy_code: p.fy_code,
+              outstanding_balance: 0,
+            } as any,
+            invoice_number: p.invoice_number,
+            invoice_lifecycle_status: p.invoice_lifecycle_status,
+            customer_name: p.customer_name,
+            net_settled: netAmt,
+          };
+        });
+        setLivePayments(items);
+        setLiveLoaded(true);
+        if (res.summary) {
+          setLiveSummary({
+            totalCash: Number(res.summary.total_cash || 0),
+            totalTds: Number(res.summary.total_tds || 0),
+            totalNet: Number(res.summary.total_settled || 0),
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch live payments:', err);
+      }
+    };
+    void fetchPayments();
+    return () => { active = false; };
+  }, [isLive, fy, records]);
+
+  // Derive flat payment list for the active FY from records (fallback for initial render or MOCK mode)
+  const recordsPayments: PaymentItem[] = records
+    .filter(inv => (fy === 'ALL' || fy === 'All' || !fy || inv.fy_code === fy) && (!isLive ? inv.computed_status !== 'CANCELLED' : true))
     .flatMap(inv =>
       (inv.payments || []).map((p: any) => {
         const cashAmt = Number(p.payment_amount ?? p.cash_amount ?? 0);
@@ -78,20 +145,35 @@ export function PaymentsLedger({
         const netAmt = p.total_settled != null ? Number(p.total_settled) : (cashAmt + tdsAmt);
         return {
           ...p,
+          id: p.id ?? (inv.id * 1000),
+          invoice_id: p.invoice_id ?? inv.id,
+          parent_transaction_id: p.parent_transaction_id,
+          is_superseded: p.is_superseded ?? false,
+          transaction_type: p.transaction_type || 'PAYMENT',
           payment_amount: cashAmt,
+          cash_amount: cashAmt,
           tds_amount: tdsAmt,
           invoice: inv,
           invoice_number: inv.invoice_number ?? inv.po_number,
+          invoice_lifecycle_status: inv.computed_status,
           customer_name: inv.customer_name,
           net_settled: netAmt,
         };
       })
     );
 
-  // Aggregate totals
-  const totalCash = allPayments.reduce((sum, p) => sum + p.payment_amount, 0);
-  const totalTds = allPayments.reduce((sum, p) => sum + p.tds_amount, 0);
-  const totalNet = totalCash + totalTds;
+  const allPayments: PaymentItem[] = (isLive && liveLoaded) ? livePayments : recordsPayments;
+
+  // Aggregate totals (reversals are signed negative)
+  const totalCash = (isLive && liveSummary)
+    ? liveSummary.totalCash
+    : allPayments.reduce((sum, p) => sum + (p.transaction_type === 'REVERSAL' && p.payment_amount > 0 ? -p.payment_amount : p.payment_amount), 0);
+  const totalTds = (isLive && liveSummary)
+    ? liveSummary.totalTds
+    : allPayments.reduce((sum, p) => sum + (p.transaction_type === 'REVERSAL' && p.tds_amount > 0 ? -p.tds_amount : p.tds_amount), 0);
+  const totalNet = (isLive && liveSummary)
+    ? liveSummary.totalNet
+    : (totalCash + totalTds);
 
   // Filter
   const filtered = empty
@@ -285,168 +367,348 @@ export function PaymentsLedger({
                 </tr>
               </thead>
               <tbody>
-                {rows.map(row => (
-                  <tr key={row.id}>
-                    <td>
-                      <strong>{row.remittance_number || `PAY-${row.id}`}</strong>
-                    </td>
-                    <td>{dateLabel(row.payment_date)}</td>
-                    <td>
-                      <Button variant="link" onClick={() => openInvoice(row.invoice, 'invoice')}>
-                        {row.invoice_number}
-                      </Button>
-                    </td>
-                    <td><strong>{row.customer_name}</strong></td>
-                    <td><span className="cf-status partial">{row.payment_mode}</span></td>
-                    <td className="cf-number">
-                      <strong>{money(row.payment_amount)}</strong>
-                    </td>
-                    <td className="cf-number">
-                      <strong>{money(row.tds_amount)}</strong>
-                      {row.tds_section && <small>{row.tds_section}</small>}
-                    </td>
-                    <td className="cf-number cf-balance">
-                      <strong>{money(row.net_settled)}</strong>
-                    </td>
-                    <td><small>{row.notes || '—'}</small></td>
-                    <td className="cf-actions-cell">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`View invoice ${row.invoice_number}`}
-                        onClick={() => openInvoice(row.invoice, 'invoice')}
-                      >
-                        <ArrowUpRight size={18} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Actions for payment ${row.remittance_number || row.id}`}
-                        aria-expanded={menu === row.id}
-                        onClick={() => setMenu(menu === row.id ? null : row.id)}
-                      >
-                        <MoreHorizontal size={18} />
-                      </Button>
-                      {menu === row.id && (
-                        <div className="cf-row-menu">
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              openInvoice(row.invoice, 'invoice');
-                              setMenu(null);
-                            }}
-                          >
-                            View Invoice Details
+                {rows.map(row => {
+                  const isReversal = row.transaction_type === 'REVERSAL';
+                  const isEligibleForCorrection = row.transaction_type === 'PAYMENT' && !row.is_superseded && row.invoice_lifecycle_status !== 'CANCELLED';
+                  const displayCash = isReversal && row.payment_amount > 0 ? -row.payment_amount : row.payment_amount;
+                  const displayTds = isReversal && row.tds_amount > 0 ? -row.tds_amount : row.tds_amount;
+                  const displayNet = isReversal && row.net_settled > 0 ? -row.net_settled : row.net_settled;
+
+                  return (
+                    <tr key={row.id}>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <strong>{row.remittance_number || `PAY-${row.id}`}</strong>
+                            {isReversal ? (
+                              <span
+                                className="cf-badge cf-badge-reversal"
+                                style={{
+                                  display: 'inline-block',
+                                  fontSize: '0.65rem',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  textTransform: 'uppercase',
+                                  fontWeight: 600,
+                                  color: '#dc2626',
+                                  backgroundColor: '#fef2f2',
+                                  border: '1px solid #fecaca',
+                                }}
+                              >
+                                REVERSAL
+                              </span>
+                            ) : (
+                              <span
+                                className="cf-badge cf-badge-payment"
+                                style={{
+                                  display: 'inline-block',
+                                  fontSize: '0.65rem',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  textTransform: 'uppercase',
+                                  fontWeight: 600,
+                                  color: '#15803d',
+                                  backgroundColor: '#f0fdf4',
+                                  border: '1px solid #bbf7d0',
+                                }}
+                              >
+                                PAYMENT
+                              </span>
+                            )}
+                            {row.is_superseded && (
+                              <span
+                                className="cf-badge cf-badge-superseded"
+                                style={{
+                                  display: 'inline-block',
+                                  fontSize: '0.65rem',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  textTransform: 'uppercase',
+                                  fontWeight: 600,
+                                  color: '#64748b',
+                                  backgroundColor: '#f1f5f9',
+                                  border: '1px solid #cbd5e1',
+                                }}
+                              >
+                                SUPERSEDED
+                              </span>
+                            )}
+                          </div>
+                          {row.parent_transaction_id && (
+                            <small style={{ color: '#64748b' }}>
+                              Reversal of #{row.parent_transaction_id}
+                            </small>
+                          )}
+                        </div>
+                      </td>
+                      <td>{dateLabel(row.payment_date)}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Button variant="link" onClick={() => openInvoice(row.invoice, 'invoice')}>
+                            {row.invoice_number}
                           </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              openInvoice(row.invoice, 'invoice');
-                              setMenu(null);
-                            }}
-                          >
-                            View Payment History
-                          </Button>
-                          {canModify && (
+                          {row.invoice_lifecycle_status === 'CANCELLED' && (
+                            <span
+                              className="cf-badge cf-badge-cancelled"
+                              style={{
+                                display: 'inline-block',
+                                fontSize: '0.65rem',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                textTransform: 'uppercase',
+                                fontWeight: 600,
+                                color: '#dc2626',
+                                backgroundColor: '#fef2f2',
+                                border: '1px solid #fecaca',
+                              }}
+                            >
+                              Cancelled
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td><strong>{row.customer_name}</strong></td>
+                      <td><span className="cf-status partial">{row.payment_mode}</span></td>
+                      <td className="cf-number">
+                        <strong style={isReversal ? { color: '#dc2626' } : undefined}>{money(displayCash)}</strong>
+                      </td>
+                      <td className="cf-number">
+                        <strong style={isReversal ? { color: '#dc2626' } : undefined}>{money(displayTds)}</strong>
+                        {row.tds_section && <small>{row.tds_section}</small>}
+                      </td>
+                      <td className="cf-number cf-balance">
+                        <strong style={isReversal ? { color: '#dc2626' } : undefined}>{money(displayNet)}</strong>
+                      </td>
+                      <td><small>{row.notes || '—'}</small></td>
+                      <td className="cf-actions-cell">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`View invoice ${row.invoice_number}`}
+                          onClick={() => openInvoice(row.invoice, 'invoice')}
+                        >
+                          <ArrowUpRight size={18} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Actions for payment ${row.remittance_number || row.id}`}
+                          aria-expanded={menu === row.id}
+                          onClick={() => setMenu(menu === row.id ? null : row.id)}
+                        >
+                          <MoreHorizontal size={18} />
+                        </Button>
+                        {menu === row.id && (
+                          <div className="cf-row-menu">
                             <Button
                               variant="ghost"
                               onClick={() => {
+                                openInvoice(row.invoice, 'invoice');
                                 setMenu(null);
-                                if (onCorrectPayment) onCorrectPayment(row);
-                                else if (unavailable) unavailable('Administrative Payment Correction');
                               }}
                             >
-                              Correct / Reverse Payment
+                              View Invoice Details
                             </Button>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                            <Button
+                              variant="ghost"
+                              onClick={() => {
+                                openInvoice(row.invoice, 'invoice');
+                                setMenu(null);
+                              }}
+                            >
+                              View Payment History
+                            </Button>
+                            {canModify && isEligibleForCorrection && (
+                              <Button
+                                variant="ghost"
+                                onClick={() => {
+                                  setMenu(null);
+                                  if (onCorrectPayment) onCorrectPayment(row);
+                                  else if (unavailable) unavailable('Administrative Payment Correction');
+                                }}
+                              >
+                                Correct / Reverse Payment
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
           {/* Mobile Cards Layout (<= 600px) */}
           <div className="cf-mobile-cards">
-            {rows.map(row => (
-              <article className="cf-record-card" key={row.id}>
-                <header>
-                  <strong>{row.remittance_number || `PAY-${row.id}`}</strong>
-                  <span className="cf-status partial">{row.payment_mode}</span>
-                </header>
-                <h3>{row.customer_name}</h3>
-                <dl>
-                  <div>
-                    <dt>Invoice</dt>
-                    <dd>
-                      <Button variant="link" onClick={() => openInvoice(row.invoice, 'invoice')}>
-                        {row.invoice_number}
-                      </Button>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Payment Date</dt>
-                    <dd>{dateLabel(row.payment_date)}</dd>
-                  </div>
-                  <div>
-                    <dt>Cash Paid</dt>
-                    <dd>{money(row.payment_amount)}</dd>
-                  </div>
-                  <div>
-                    <dt>TDS Deducted</dt>
-                    <dd>{money(row.tds_amount)}{row.tds_section ? ` (${row.tds_section})` : ''}</dd>
-                  </div>
-                  <div>
-                    <dt>Net Settled</dt>
-                    <dd className="cf-balance"><strong>{money(row.net_settled)}</strong></dd>
-                  </div>
-                  <div>
-                    <dt>Notes</dt>
-                    <dd>{row.notes || '—'}</dd>
-                  </div>
-                </dl>
-                <footer>
-                  <Button variant="ghost" onClick={() => openInvoice(row.invoice, 'invoice')}>
-                    View Invoice <ArrowUpRight size={16} />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Actions for payment ${row.remittance_number || row.id}`}
-                    onClick={() => setMenu(menu === row.id ? null : row.id)}
-                  >
-                    <MoreHorizontal size={18} />
-                  </Button>
-                </footer>
-                {menu === row.id && (
-                  <div className="cf-row-menu">
+            {rows.map(row => {
+              const isReversal = row.transaction_type === 'REVERSAL';
+              const isEligibleForCorrection = row.transaction_type === 'PAYMENT' && !row.is_superseded && row.invoice_lifecycle_status !== 'CANCELLED';
+              const displayCash = isReversal && row.payment_amount > 0 ? -row.payment_amount : row.payment_amount;
+              const displayTds = isReversal && row.tds_amount > 0 ? -row.tds_amount : row.tds_amount;
+              const displayNet = isReversal && row.net_settled > 0 ? -row.net_settled : row.net_settled;
+
+              return (
+                <article className="cf-record-card" key={row.id}>
+                  <header>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <strong>{row.remittance_number || `PAY-${row.id}`}</strong>
+                        {isReversal ? (
+                          <span
+                            className="cf-badge cf-badge-reversal"
+                            style={{
+                              display: 'inline-block',
+                              fontSize: '0.65rem',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              textTransform: 'uppercase',
+                              fontWeight: 600,
+                              color: '#dc2626',
+                              backgroundColor: '#fef2f2',
+                              border: '1px solid #fecaca',
+                            }}
+                          >
+                            REVERSAL
+                          </span>
+                        ) : (
+                          <span
+                            className="cf-badge cf-badge-payment"
+                            style={{
+                              display: 'inline-block',
+                              fontSize: '0.65rem',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              textTransform: 'uppercase',
+                              fontWeight: 600,
+                              color: '#15803d',
+                              backgroundColor: '#f0fdf4',
+                              border: '1px solid #bbf7d0',
+                            }}
+                          >
+                            PAYMENT
+                          </span>
+                        )}
+                        {row.is_superseded && (
+                          <span
+                            className="cf-badge cf-badge-superseded"
+                            style={{
+                              display: 'inline-block',
+                              fontSize: '0.65rem',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              textTransform: 'uppercase',
+                              fontWeight: 600,
+                              color: '#64748b',
+                              backgroundColor: '#f1f5f9',
+                              border: '1px solid #cbd5e1',
+                            }}
+                          >
+                            SUPERSEDED
+                          </span>
+                        )}
+                      </div>
+                      {row.parent_transaction_id && (
+                        <small style={{ color: '#64748b' }}>
+                          Reversal of #{row.parent_transaction_id}
+                        </small>
+                      )}
+                    </div>
+                    <span className="cf-status partial">{row.payment_mode}</span>
+                  </header>
+                  <h3>{row.customer_name}</h3>
+                  <dl>
+                    <div>
+                      <dt>Invoice</dt>
+                      <dd>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Button variant="link" onClick={() => openInvoice(row.invoice, 'invoice')}>
+                            {row.invoice_number}
+                          </Button>
+                          {row.invoice_lifecycle_status === 'CANCELLED' && (
+                            <span
+                              className="cf-badge cf-badge-cancelled"
+                              style={{
+                                display: 'inline-block',
+                                fontSize: '0.65rem',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                textTransform: 'uppercase',
+                                fontWeight: 600,
+                                color: '#dc2626',
+                                backgroundColor: '#fef2f2',
+                                border: '1px solid #fecaca',
+                              }}
+                            >
+                              Cancelled
+                            </span>
+                          )}
+                        </div>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Payment Date</dt>
+                      <dd>{dateLabel(row.payment_date)}</dd>
+                    </div>
+                    <div>
+                      <dt>Cash Paid</dt>
+                      <dd style={isReversal ? { color: '#dc2626' } : undefined}>{money(displayCash)}</dd>
+                    </div>
+                    <div>
+                      <dt>TDS Deducted</dt>
+                      <dd style={isReversal ? { color: '#dc2626' } : undefined}>{money(displayTds)}{row.tds_section ? ` (${row.tds_section})` : ''}</dd>
+                    </div>
+                    <div>
+                      <dt>Net Settled</dt>
+                      <dd className="cf-balance" style={isReversal ? { color: '#dc2626' } : undefined}><strong>{money(displayNet)}</strong></dd>
+                    </div>
+                    <div>
+                      <dt>Notes</dt>
+                      <dd>{row.notes || '—'}</dd>
+                    </div>
+                  </dl>
+                  <footer>
+                    <Button variant="ghost" onClick={() => openInvoice(row.invoice, 'invoice')}>
+                      View Invoice <ArrowUpRight size={16} />
+                    </Button>
                     <Button
                       variant="ghost"
-                      onClick={() => {
-                        openInvoice(row.invoice, 'invoice');
-                        setMenu(null);
-                      }}
+                      size="icon"
+                      aria-label={`Actions for payment ${row.remittance_number || row.id}`}
+                      onClick={() => setMenu(menu === row.id ? null : row.id)}
                     >
-                      View Invoice Details
+                      <MoreHorizontal size={18} />
                     </Button>
-                    {canModify && (
+                  </footer>
+                  {menu === row.id && (
+                    <div className="cf-row-menu">
                       <Button
                         variant="ghost"
                         onClick={() => {
+                          openInvoice(row.invoice, 'invoice');
                           setMenu(null);
-                          if (onCorrectPayment) onCorrectPayment(row);
-                          else if (unavailable) unavailable('Administrative Payment Correction');
                         }}
                       >
-                        Correct / Reverse Payment
+                        View Invoice Details
                       </Button>
-                    )}
-                  </div>
-                )}
-              </article>
-            ))}
+                      {canModify && isEligibleForCorrection && (
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setMenu(null);
+                            if (onCorrectPayment) onCorrectPayment(row);
+                            else if (unavailable) unavailable('Administrative Payment Correction');
+                          }}
+                        >
+                          Correct / Reverse Payment
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
           </div>
         </>
       ) : (

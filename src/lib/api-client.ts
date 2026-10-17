@@ -609,8 +609,13 @@ class ApiClient {
   }
 
   public async createPayment(data: PaymentCreateDTO): Promise<{ success: boolean; payment_id: number; message: string; invoice_summary?: any; summary?: any }> {
+    const headers: Record<string, string> = {};
+    if (data.idempotency_key) {
+      headers["idempotency-key"] = data.idempotency_key;
+    }
     return await this.request<{ success: boolean; payment_id: number; message: string; invoice_summary?: any; summary?: any }>("/api/payments", {
       method: "POST",
+      headers,
       body: data,
     });
   }
@@ -761,6 +766,7 @@ export interface PaymentDTO {
   id: number;
   invoice_id: number;
   parent_transaction_id?: number | null | undefined;
+  is_superseded?: boolean | undefined;
   transaction_type: 'PAYMENT' | 'REVERSAL' | 'ADJUSTMENT';
   cash_amount: string;
   payment_amount: string;
@@ -775,6 +781,7 @@ export interface PaymentDTO {
   recorded_by: number;
   created_at?: string | null | undefined;
   invoice_number: string;
+  invoice_lifecycle_status?: string | null | undefined;
   customer_id: number;
   customer_name: string;
   fy_code: string;

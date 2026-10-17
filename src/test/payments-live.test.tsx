@@ -348,4 +348,180 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
       })
     );
   });
+
+  it('RecordPaymentDrawer: preserves stable idempotency key across failed submission and manual retry (CF4C4-02)', async () => {
+    let callCount = 0;
+    const capturedPayloads: any[] = [];
+    vi.spyOn(apiClient, 'createPayment').mockImplementation(async (payload) => {
+      callCount++;
+      capturedPayloads.push(payload);
+      if (callCount === 1) {
+        throw new Error('Network timeout: Please retry');
+      }
+      return {
+        success: true,
+        payment_id: 999,
+        message: 'Payment recorded successfully',
+      };
+    });
+
+    render(
+      <MockSessionProvider>
+        <RecordPaymentDrawer invoice={mockLiveInvoice} close={vi.fn()} />
+      </MockSessionProvider>
+    );
+
+    // 1. Submit Form to Review
+    const reviewBtn = screen.getByRole('button', { name: /Review changes/i });
+    fireEvent.click(reviewBtn);
+
+    // 2. Review -> Confirm
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Continue to confirmation/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Continue to confirmation/i }));
+
+    // 3. First Confirm Attempt (Simulates Failure)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Confirm payment/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Confirm payment/i }));
+
+    // Error alert should be displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Network timeout: Please retry/i)).toBeInTheDocument();
+    });
+    expect(callCount).toBe(1);
+    const firstKey = capturedPayloads[0].idempotency_key;
+    expect(firstKey).toBeDefined();
+    expect(firstKey).toMatch(/^pay-idem-/);
+
+    // 4. Retry Confirm Attempt (Manual retry of same submission)
+    const retryBtn = screen.getByRole('button', { name: /Confirm payment/i });
+    fireEvent.click(retryBtn);
+
+    // Success screen should now display
+    await waitFor(() => {
+      expect(screen.getByText(/Payment recorded successfully/i)).toBeInTheDocument();
+    });
+    expect(callCount).toBe(2);
+    const secondKey = capturedPayloads[1].idempotency_key;
+    // Exactly the same idempotency key preserved across retries
+    expect(secondKey).toBe(firstKey);
+  });
+
+  it('PaymentsLedger: renders type badges, parent references, signed amounts, and restricts corrections (CF4C4-03)', () => {
+    const onCorrectSpy = vi.fn();
+    const openInvoiceSpy = vi.fn();
+
+    const activeInvoice: Invoice = {
+      ...mockLiveInvoice,
+      id: 10,
+      invoice_number: 'INV-2026-ACTIVE',
+      computed_status: 'PARTIAL',
+      payments: [
+        {
+          id: 101,
+          invoice_id: 10,
+          transaction_type: 'PAYMENT',
+          payment_amount: 50000.0,
+          tds_amount: 0.0,
+          payment_date: '2026-04-15',
+          payment_mode: 'NEFT',
+          remittance_number: 'UTR-ACTIVE-101',
+          notes: 'Active payment eligible for correction',
+        },
+        {
+          id: 102,
+          invoice_id: 10,
+          transaction_type: 'REVERSAL',
+          parent_transaction_id: 100,
+          payment_amount: 25000.0,
+          tds_amount: 0.0,
+          payment_date: '2026-04-16',
+          payment_mode: 'NEFT',
+          remittance_number: 'UTR-REV-102',
+          notes: 'Reversal of Payment #100',
+        },
+        {
+          id: 103,
+          invoice_id: 10,
+          transaction_type: 'PAYMENT',
+          is_superseded: true,
+          payment_amount: 30000.0,
+          tds_amount: 0.0,
+          payment_date: '2026-04-14',
+          payment_mode: 'NEFT',
+          remittance_number: 'UTR-SUPER-103',
+          notes: 'Superseded payment not eligible for correction',
+        },
+      ],
+    };
+
+    const cancelledInvoice: Invoice = {
+      ...mockLiveInvoice,
+      id: 20,
+      invoice_number: 'INV-2026-CANCELLED',
+      computed_status: 'CANCELLED',
+      payments: [
+        {
+          id: 201,
+          invoice_id: 20,
+          transaction_type: 'PAYMENT',
+          payment_amount: 15000.0,
+          tds_amount: 0.0,
+          payment_date: '2026-04-10',
+          payment_mode: 'NEFT',
+          remittance_number: 'UTR-CANC-201',
+          notes: 'Retained payment for cancelled invoice',
+        },
+      ],
+    };
+
+    render(
+      <MockSessionProvider>
+        <PaymentsLedger
+          records={[activeInvoice, cancelledInvoice]}
+          fy="FY 2026-27"
+          role="admin"
+          openInvoice={openInvoiceSpy}
+          onCorrectPayment={onCorrectSpy}
+        />
+      </MockSessionProvider>
+    );
+
+    // 1. Transaction Type Badges & Retention of Cancelled Invoice History
+    expect(screen.getAllByText('PAYMENT').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('REVERSAL').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('SUPERSEDED').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Reversal of #100/i)[0]).toBeInTheDocument();
+
+    // 2. Signed negative amount for reversal
+    expect(screen.getAllByText('-₹25,000')[0]).toBeInTheDocument();
+
+    // 3. Correction eligibility: Only active payment has 'Correct / Reverse Payment' option
+    // Open menu for active payment 101 -> Should have correction option
+    const activeMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-ACTIVE-101/i })[0];
+    fireEvent.click(activeMenuBtn);
+    expect(screen.getAllByRole('button', { name: /Correct \/ Reverse Payment/i })[0]).toBeInTheDocument();
+    fireEvent.click(activeMenuBtn); // close
+
+    // Open menu for reversal 102 -> Must NOT have correction option
+    const revMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-REV-102/i })[0];
+    fireEvent.click(revMenuBtn);
+    expect(screen.queryByRole('button', { name: /Correct \/ Reverse Payment/i })).not.toBeInTheDocument();
+    fireEvent.click(revMenuBtn); // close
+
+    // Open menu for superseded payment 103 -> Must NOT have correction option
+    const superMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-SUPER-103/i })[0];
+    fireEvent.click(superMenuBtn);
+    expect(screen.queryByRole('button', { name: /Correct \/ Reverse Payment/i })).not.toBeInTheDocument();
+    fireEvent.click(superMenuBtn); // close
+
+    // Open menu for cancelled invoice payment 201 -> Must NOT have correction option
+    const cancMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-CANC-201/i })[0];
+    fireEvent.click(cancMenuBtn);
+    expect(screen.queryByRole('button', { name: /Correct \/ Reverse Payment/i })).not.toBeInTheDocument();
+  });
 });

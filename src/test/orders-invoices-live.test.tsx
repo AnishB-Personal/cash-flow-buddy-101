@@ -251,6 +251,7 @@ describe('Stage 4C.3: LIVE Orders & Invoices Integration Tests', () => {
       await waitFor(() => {
         expect(getCustSpy).toHaveBeenCalled();
         expect(getUsersSpy).toHaveBeenCalled();
+        expect(screen.getByRole('option', { name: 'Live Customer Inc' })).toBeInTheDocument();
       });
 
       // 1. Submit form to review
