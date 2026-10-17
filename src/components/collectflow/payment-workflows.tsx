@@ -748,7 +748,7 @@ export function PaymentCorrectionDrawer({
         close();
         return;
       }
-      if (dirty && liveStep !== 'result') {
+      if (dirty) {
         setDiscard(true);
       } else {
         close();

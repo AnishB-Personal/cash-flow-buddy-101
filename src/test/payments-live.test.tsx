@@ -47,10 +47,9 @@ const mockLiveInvoice: Invoice = {
       payment_date: "2026-04-18",
       payment_mode: "NEFT",
       remittance_number: "UTR-HDFC-9918273645",
-      notes: "First milestone payment",
     },
   ],
-};
+} as unknown as Invoice;
 
 const mockPaymentItem: PaymentItem = {
   id: 1,
@@ -311,9 +310,43 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
     expect(screen.getByRole('button', { name: /Delete Only \(No Replacement\)/i })).toBeInTheDocument();
   });
 
-  it('PaymentsLedger: displays live settlement items and allows finance/admin to open correction drawer', () => {
+  it('PaymentsLedger: displays live settlement items and allows finance/admin to open correction drawer', async () => {
     const onCorrectSpy = vi.fn();
     const openInvoiceSpy = vi.fn();
+
+    vi.spyOn(apiClient, 'getPayments').mockResolvedValue({
+      page: 1,
+      limit: 10,
+      total: 1,
+      total_pages: 1,
+      summary: {
+        total_cash: '200000.00',
+        total_tds: '9000.00',
+        total_settled: '209000.00',
+        transaction_count: 1,
+      },
+      data: [
+        {
+          id: 1,
+          invoice_id: 1,
+          invoice_number: 'INV-2026-042',
+          customer_name: 'Nexus Corp',
+          cash_amount: '200000.00',
+          tds_amount: '9000.00',
+          total_settled: '209000.00',
+          payment_date: '2026-04-18',
+          payment_mode: 'NEFT',
+          remittance_number: 'UTR-HDFC-9918273645',
+          notes: 'First milestone payment',
+          tds_section: '194C',
+          transaction_type: 'PAYMENT',
+          is_superseded: false,
+          invoice_lifecycle_status: 'PARTIAL',
+          fy_code: 'FY 2026-27',
+          created_at: '2026-04-18T10:00:00Z',
+        } as any,
+      ],
+    });
 
     render(
       <MockSessionProvider>
@@ -327,17 +360,19 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
       </MockSessionProvider>
     );
 
-    // Check payment row rendered (present in desktop table and mobile card)
-    expect(screen.getAllByText('UTR-HDFC-9918273645')[0]).toBeInTheDocument();
+    // Wait for live fetch to finish and check payment row rendered
+    await waitFor(() => {
+      expect(screen.getAllByText('UTR-HDFC-9918273645')[0]).toBeInTheDocument();
+    });
     expect(screen.getAllByText('Nexus Corp')[0]).toBeInTheDocument();
     expect(screen.getAllByText('₹2,00,000')[0]).toBeInTheDocument();
 
     // Open row menu (first in desktop table)
-    const menuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-HDFC-9918273645/i })[0];
+    const menuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-HDFC-9918273645/i })[0]!;
     fireEvent.click(menuBtn);
 
     // Check Correct / Reverse button exists and triggers callback
-    const correctBtn = screen.getAllByRole('button', { name: /Correct \/ Reverse Payment/i })[0];
+    const correctBtn = screen.getAllByRole('button', { name: /Correct \/ Reverse Payment/i })[0]!;
     expect(correctBtn).toBeInTheDocument();
     fireEvent.click(correctBtn);
 
@@ -410,78 +445,102 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
     expect(secondKey).toBe(firstKey);
   });
 
-  it('PaymentsLedger: renders type badges, parent references, signed amounts, and restricts corrections (CF4C4-03)', () => {
+  it('PaymentsLedger: renders type badges, parent references, signed amounts, and restricts corrections (CF4C4-03)', async () => {
     const onCorrectSpy = vi.fn();
     const openInvoiceSpy = vi.fn();
 
-    const activeInvoice: Invoice = {
-      ...mockLiveInvoice,
-      id: 10,
-      invoice_number: 'INV-2026-ACTIVE',
-      computed_status: 'PARTIAL',
-      payments: [
+    vi.spyOn(apiClient, 'getPayments').mockResolvedValue({
+      page: 1,
+      limit: 10,
+      total: 4,
+      total_pages: 1,
+      summary: {
+        total_cash: '70000.00',
+        total_tds: '0.00',
+        total_settled: '70000.00',
+        transaction_count: 4,
+      },
+      data: [
         {
           id: 101,
           invoice_id: 10,
-          transaction_type: 'PAYMENT',
-          payment_amount: 50000.0,
-          tds_amount: 0.0,
+          invoice_number: 'INV-2026-ACTIVE',
+          customer_name: 'Nexus Corp',
+          cash_amount: '50000.00',
+          tds_amount: '0.00',
+          total_settled: '50000.00',
           payment_date: '2026-04-15',
           payment_mode: 'NEFT',
           remittance_number: 'UTR-ACTIVE-101',
           notes: 'Active payment eligible for correction',
-        },
+          transaction_type: 'PAYMENT',
+          is_superseded: false,
+          invoice_lifecycle_status: 'PARTIAL',
+          fy_code: 'FY 2026-27',
+          created_at: '2026-04-15T10:00:00Z',
+        } as any,
         {
           id: 102,
           invoice_id: 10,
-          transaction_type: 'REVERSAL',
-          parent_transaction_id: 100,
-          payment_amount: 25000.0,
-          tds_amount: 0.0,
+          invoice_number: 'INV-2026-ACTIVE',
+          customer_name: 'Nexus Corp',
+          cash_amount: '25000.00',
+          tds_amount: '0.00',
+          total_settled: '25000.00',
           payment_date: '2026-04-16',
           payment_mode: 'NEFT',
           remittance_number: 'UTR-REV-102',
           notes: 'Reversal of Payment #100',
-        },
+          transaction_type: 'REVERSAL',
+          parent_transaction_id: 100,
+          is_superseded: false,
+          invoice_lifecycle_status: 'PARTIAL',
+          fy_code: 'FY 2026-27',
+          created_at: '2026-04-16T10:00:00Z',
+        } as any,
         {
           id: 103,
           invoice_id: 10,
-          transaction_type: 'PAYMENT',
-          is_superseded: true,
-          payment_amount: 30000.0,
-          tds_amount: 0.0,
+          invoice_number: 'INV-2026-ACTIVE',
+          customer_name: 'Nexus Corp',
+          cash_amount: '30000.00',
+          tds_amount: '0.00',
+          total_settled: '30000.00',
           payment_date: '2026-04-14',
           payment_mode: 'NEFT',
           remittance_number: 'UTR-SUPER-103',
           notes: 'Superseded payment not eligible for correction',
-        },
-      ],
-    };
-
-    const cancelledInvoice: Invoice = {
-      ...mockLiveInvoice,
-      id: 20,
-      invoice_number: 'INV-2026-CANCELLED',
-      computed_status: 'CANCELLED',
-      payments: [
+          transaction_type: 'PAYMENT',
+          is_superseded: true,
+          invoice_lifecycle_status: 'PARTIAL',
+          fy_code: 'FY 2026-27',
+          created_at: '2026-04-14T10:00:00Z',
+        } as any,
         {
           id: 201,
           invoice_id: 20,
-          transaction_type: 'PAYMENT',
-          payment_amount: 15000.0,
-          tds_amount: 0.0,
+          invoice_number: 'INV-2026-CANCELLED',
+          customer_name: 'Nexus Corp',
+          cash_amount: '15000.00',
+          tds_amount: '0.00',
+          total_settled: '15000.00',
           payment_date: '2026-04-10',
           payment_mode: 'NEFT',
           remittance_number: 'UTR-CANC-201',
           notes: 'Retained payment for cancelled invoice',
-        },
+          transaction_type: 'PAYMENT',
+          is_superseded: false,
+          invoice_lifecycle_status: 'CANCELLED',
+          fy_code: 'FY 2026-27',
+          created_at: '2026-04-10T10:00:00Z',
+        } as any,
       ],
-    };
+    });
 
     render(
       <MockSessionProvider>
         <PaymentsLedger
-          records={[activeInvoice, cancelledInvoice]}
+          records={[]}
           fy="FY 2026-27"
           role="admin"
           openInvoice={openInvoiceSpy}
@@ -490,8 +549,12 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
       </MockSessionProvider>
     );
 
+    // Wait for live fetch to complete
+    await waitFor(() => {
+      expect(screen.getAllByText('PAYMENT').length).toBeGreaterThan(0);
+    });
+
     // 1. Transaction Type Badges & Retention of Cancelled Invoice History
-    expect(screen.getAllByText('PAYMENT').length).toBeGreaterThan(0);
     expect(screen.getAllByText('REVERSAL').length).toBeGreaterThan(0);
     expect(screen.getAllByText('SUPERSEDED').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0);
@@ -502,26 +565,228 @@ describe('Stage 4C.4: LIVE Payments & Adjustments Integration Tests', () => {
 
     // 3. Correction eligibility: Only active payment has 'Correct / Reverse Payment' option
     // Open menu for active payment 101 -> Should have correction option
-    const activeMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-ACTIVE-101/i })[0];
+    const activeMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-ACTIVE-101/i })[0]!;
     fireEvent.click(activeMenuBtn);
     expect(screen.getAllByRole('button', { name: /Correct \/ Reverse Payment/i })[0]).toBeInTheDocument();
     fireEvent.click(activeMenuBtn); // close
 
     // Open menu for reversal 102 -> Must NOT have correction option
-    const revMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-REV-102/i })[0];
+    const revMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-REV-102/i })[0]!;
     fireEvent.click(revMenuBtn);
     expect(screen.queryByRole('button', { name: /Correct \/ Reverse Payment/i })).not.toBeInTheDocument();
     fireEvent.click(revMenuBtn); // close
 
     // Open menu for superseded payment 103 -> Must NOT have correction option
-    const superMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-SUPER-103/i })[0];
+    const superMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-SUPER-103/i })[0]!;
     fireEvent.click(superMenuBtn);
     expect(screen.queryByRole('button', { name: /Correct \/ Reverse Payment/i })).not.toBeInTheDocument();
     fireEvent.click(superMenuBtn); // close
 
     // Open menu for cancelled invoice payment 201 -> Must NOT have correction option
-    const cancMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-CANC-201/i })[0];
+    const cancMenuBtn = screen.getAllByRole('button', { name: /Actions for payment UTR-CANC-201/i })[0]!;
     fireEvent.click(cancMenuBtn);
     expect(screen.queryByRole('button', { name: /Correct \/ Reverse Payment/i })).not.toBeInTheDocument();
+  });
+
+  it('PaymentsLedger: respects backend pagination parameters and loads records beyond first page (CF4C4-03)', async () => {
+    const getPaymentsSpy = vi.spyOn(apiClient, 'getPayments').mockImplementation(async (params) => {
+      const pageNum = params?.page ?? 1;
+      const limitNum = params?.limit ?? 10;
+      return {
+        page: pageNum,
+        limit: limitNum,
+        total: 75,
+        total_pages: 8,
+        summary: {
+          total_cash: '750000.00',
+          total_tds: '0.00',
+          total_settled: '750000.00',
+          transaction_count: 75,
+        },
+        data: [
+          {
+            id: pageNum * 10,
+            invoice_id: 10,
+            invoice_number: `INV-2026-P${pageNum}`,
+            customer_name: `Customer P${pageNum}`,
+            cash_amount: '10000.00',
+            tds_amount: '0.00',
+            total_settled: '10000.00',
+            payment_date: '2026-04-15',
+            payment_mode: 'NEFT',
+            remittance_number: `UTR-PAGE-${pageNum}`,
+            transaction_type: 'PAYMENT',
+            is_superseded: false,
+            invoice_lifecycle_status: 'ISSUED',
+            fy_code: 'FY 2026-27',
+            created_at: '2026-04-15T10:00:00Z',
+          } as any,
+        ],
+      };
+    });
+
+    render(
+      <MockSessionProvider>
+        <PaymentsLedger
+          records={[]}
+          fy="FY 2026-27"
+          role="admin"
+          openInvoice={vi.fn()}
+        />
+      </MockSessionProvider>
+    );
+
+    // Initial page 1 loads
+    await waitFor(() => {
+      expect(screen.getByText('1–10 of 75')).toBeInTheDocument();
+    });
+    expect(screen.getByText('1 / 8')).toBeInTheDocument();
+    expect(screen.getAllByText('UTR-PAGE-1')[0]).toBeInTheDocument();
+
+    // Previous page should be disabled on page 1
+    const prevBtn = screen.getByRole('button', { name: /Previous page/i });
+    expect(prevBtn).toBeDisabled();
+
+    // Next page should be enabled
+    const nextBtn = screen.getByRole('button', { name: /Next page/i });
+    expect(nextBtn).not.toBeDisabled();
+
+    // Click Next page
+    fireEvent.click(nextBtn);
+
+    // Should fetch page 2 from backend
+    await waitFor(() => {
+      expect(screen.getByText('11–20 of 75')).toBeInTheDocument();
+    });
+    expect(screen.getByText('2 / 8')).toBeInTheDocument();
+    expect(screen.getAllByText('UTR-PAGE-2')[0]).toBeInTheDocument();
+
+    expect(getPaymentsSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 2,
+        limit: 10,
+      })
+    );
+  });
+
+  it('PaymentsLedger: displays explicit loading state during retrieval without silent mock fallback (CF4C4-03)', () => {
+    // Hang promise to hold component in loading state
+    vi.spyOn(apiClient, 'getPayments').mockReturnValue(new Promise(() => {}));
+
+    render(
+      <MockSessionProvider>
+        <PaymentsLedger
+          records={[mockLiveInvoice]}
+          fy="FY 2026-27"
+          role="admin"
+          openInvoice={vi.fn()}
+        />
+      </MockSessionProvider>
+    );
+
+    // Verify loading status indicator is present
+    const loadingElem = screen.getByRole('status');
+    expect(loadingElem).toBeInTheDocument();
+    expect(loadingElem).toHaveTextContent(/Loading payments ledger…/i);
+
+    // Verify mockLiveInvoice payments are NOT silently rendered
+    expect(screen.queryByText('UTR-HDFC-9918273645')).not.toBeInTheDocument();
+  });
+
+  it('PaymentsLedger: displays explicit API failure state with retry button without silent mock fallback (CF4C4-03)', async () => {
+    let attempts = 0;
+    vi.spyOn(apiClient, 'getPayments').mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new Error('500 Internal Server Error: Database timeout');
+      }
+      return {
+        page: 1,
+        limit: 10,
+        total: 1,
+        total_pages: 1,
+        summary: {
+          total_cash: '50000.00',
+          total_tds: '0.00',
+          total_settled: '50000.00',
+          transaction_count: 1,
+        },
+        data: [
+          {
+            id: 99,
+            invoice_id: 1,
+            invoice_number: 'INV-2026-099',
+            customer_name: 'Nexus Corp',
+            cash_amount: '50000.00',
+            tds_amount: '0.00',
+            total_settled: '50000.00',
+            payment_date: '2026-04-18',
+            payment_mode: 'NEFT',
+            remittance_number: 'UTR-RECOVERED-99',
+            transaction_type: 'PAYMENT',
+            is_superseded: false,
+            invoice_lifecycle_status: 'ISSUED',
+            fy_code: 'FY 2026-27',
+            created_at: '2026-04-18T10:00:00Z',
+          } as any,
+        ],
+      };
+    });
+
+    render(
+      <MockSessionProvider>
+        <PaymentsLedger
+          records={[mockLiveInvoice]}
+          fy="FY 2026-27"
+          role="admin"
+          openInvoice={vi.fn()}
+        />
+      </MockSessionProvider>
+    );
+
+    // Verify error alert is displayed
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/500 Internal Server Error: Database timeout/i)).toBeInTheDocument();
+
+    // Verify mockLiveInvoice payments are NOT silently substituted
+    expect(screen.queryByText('UTR-HDFC-9918273645')).not.toBeInTheDocument();
+
+    // Click Retry button
+    const retryBtn = screen.getByRole('button', { name: /Retry/i });
+    expect(retryBtn).toBeInTheDocument();
+    fireEvent.click(retryBtn);
+
+    // Second attempt should succeed and show recovered record
+    await waitFor(() => {
+      expect(screen.getAllByText('UTR-RECOVERED-99')[0]).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(attempts).toBe(2);
+  });
+
+  it('PaymentsLedger: preserves MOCK mode behavior when apiClient mode is mock (CF4C4-03)', () => {
+    apiClient.configure({ mode: 'mock' });
+    const getPaymentsSpy = vi.spyOn(apiClient, 'getPayments');
+
+    render(
+      <MockSessionProvider>
+        <PaymentsLedger
+          records={[mockLiveInvoice]}
+          fy="FY 2026-27"
+          role="admin"
+          openInvoice={vi.fn()}
+        />
+      </MockSessionProvider>
+    );
+
+    // MOCK records should render directly from mock records prop
+    expect(screen.getAllByText('UTR-HDFC-9918273645')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('Nexus Corp')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('₹2,00,000')[0]).toBeInTheDocument();
+
+    // Backend endpoint must not be invoked in mock mode
+    expect(getPaymentsSpy).not.toHaveBeenCalled();
   });
 });

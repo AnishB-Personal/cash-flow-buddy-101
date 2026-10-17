@@ -74,16 +74,36 @@ export function PaymentsLedger({
   const canModify = canPay(effectiveRole);
 
   const [livePayments, setLivePayments] = useState<PaymentItem[]>([]);
+  const [liveTotal, setLiveTotal] = useState(0);
+  const [liveTotalPages, setLiveTotalPages] = useState(1);
   const [liveSummary, setLiveSummary] = useState<{ totalCash: number; totalTds: number; totalNet: number } | null>(null);
-  const [liveLoaded, setLiveLoaded] = useState(false);
+  const [liveLoading, setLiveLoading] = useState(isLive);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [retryTrigger, setRetryTrigger] = useState(0);
 
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive) {
+      setLiveLoading(false);
+      setLiveError(null);
+      return;
+    }
     let active = true;
+    setLiveLoading(true);
+    setLiveError(null);
+
     const fetchPayments = async () => {
       try {
         const fyFilter = (fy && fy !== 'ALL' && fy !== 'All') ? fy : undefined;
-        const res = await apiClient.getPayments({ fy: fyFilter });
+        const modeParam = modeFilter !== 'All modes' ? modeFilter : undefined;
+        const searchParam = query.trim() || undefined;
+
+        const res = await apiClient.getPayments({
+          page,
+          limit: Number(size),
+          fy: fyFilter,
+          payment_mode: modeParam,
+          search: searchParam,
+        });
         if (!active) return;
         const items: PaymentItem[] = (res.data || []).map((p: any) => {
           const cashAmt = Number(p.cash_amount ?? p.payment_amount ?? 0);
@@ -119,7 +139,8 @@ export function PaymentsLedger({
           };
         });
         setLivePayments(items);
-        setLiveLoaded(true);
+        setLiveTotal(res.total ?? items.length);
+        setLiveTotalPages(res.total_pages ?? Math.max(1, Math.ceil((res.total ?? items.length) / Number(size))));
         if (res.summary) {
           setLiveSummary({
             totalCash: Number(res.summary.total_cash || 0),
@@ -127,58 +148,62 @@ export function PaymentsLedger({
             totalNet: Number(res.summary.total_settled || 0),
           });
         }
-      } catch (err) {
-        console.error('Failed to fetch live payments:', err);
+        setLiveLoading(false);
+      } catch (err: any) {
+        if (!active) return;
+        setLiveLoading(false);
+        setLiveError(err?.message || 'Failed to load payments ledger from server.');
       }
     };
+
     void fetchPayments();
     return () => { active = false; };
-  }, [isLive, fy, records]);
+  }, [isLive, fy, page, size, modeFilter, query, retryTrigger]);
 
-  // Derive flat payment list for the active FY from records (fallback for initial render or MOCK mode)
-  const recordsPayments: PaymentItem[] = records
-    .filter(inv => (fy === 'ALL' || fy === 'All' || !fy || inv.fy_code === fy) && (!isLive ? inv.computed_status !== 'CANCELLED' : true))
-    .flatMap(inv =>
-      (inv.payments || []).map((p: any) => {
-        const cashAmt = Number(p.payment_amount ?? p.cash_amount ?? 0);
-        const tdsAmt = Number(p.tds_amount ?? 0);
-        const netAmt = p.total_settled != null ? Number(p.total_settled) : (cashAmt + tdsAmt);
-        return {
-          ...p,
-          id: p.id ?? (inv.id * 1000),
-          invoice_id: p.invoice_id ?? inv.id,
-          parent_transaction_id: p.parent_transaction_id,
-          is_superseded: p.is_superseded ?? false,
-          transaction_type: p.transaction_type || 'PAYMENT',
-          payment_amount: cashAmt,
-          cash_amount: cashAmt,
-          tds_amount: tdsAmt,
-          invoice: inv,
-          invoice_number: inv.invoice_number ?? inv.po_number,
-          invoice_lifecycle_status: inv.computed_status,
-          customer_name: inv.customer_name,
-          net_settled: netAmt,
-        };
-      })
-    );
-
-  const allPayments: PaymentItem[] = (isLive && liveLoaded) ? livePayments : recordsPayments;
+  // Derive flat payment list strictly in MOCK mode (prevents silent fallback in LIVE mode)
+  const recordsPayments: PaymentItem[] = !isLive
+    ? records
+        .filter(inv => (fy === 'ALL' || fy === 'All' || !fy || inv.fy_code === fy) && inv.computed_status !== 'CANCELLED')
+        .flatMap(inv =>
+          (inv.payments || []).map((p: any) => {
+            const cashAmt = Number(p.payment_amount ?? p.cash_amount ?? 0);
+            const tdsAmt = Number(p.tds_amount ?? 0);
+            const netAmt = p.total_settled != null ? Number(p.total_settled) : (cashAmt + tdsAmt);
+            return {
+              ...p,
+              id: p.id ?? (inv.id * 1000),
+              invoice_id: p.invoice_id ?? inv.id,
+              parent_transaction_id: p.parent_transaction_id,
+              is_superseded: p.is_superseded ?? false,
+              transaction_type: p.transaction_type || 'PAYMENT',
+              payment_amount: cashAmt,
+              cash_amount: cashAmt,
+              tds_amount: tdsAmt,
+              invoice: inv,
+              invoice_number: inv.invoice_number ?? inv.po_number,
+              invoice_lifecycle_status: inv.computed_status,
+              customer_name: inv.customer_name,
+              net_settled: netAmt,
+            };
+          })
+        )
+    : [];
 
   // Aggregate totals (reversals are signed negative)
-  const totalCash = (isLive && liveSummary)
-    ? liveSummary.totalCash
-    : allPayments.reduce((sum, p) => sum + (p.transaction_type === 'REVERSAL' && p.payment_amount > 0 ? -p.payment_amount : p.payment_amount), 0);
-  const totalTds = (isLive && liveSummary)
-    ? liveSummary.totalTds
-    : allPayments.reduce((sum, p) => sum + (p.transaction_type === 'REVERSAL' && p.tds_amount > 0 ? -p.tds_amount : p.tds_amount), 0);
-  const totalNet = (isLive && liveSummary)
-    ? liveSummary.totalNet
+  const totalCash = isLive
+    ? (liveSummary ? liveSummary.totalCash : 0)
+    : recordsPayments.reduce((sum, p) => sum + (p.transaction_type === 'REVERSAL' && p.payment_amount > 0 ? -p.payment_amount : p.payment_amount), 0);
+  const totalTds = isLive
+    ? (liveSummary ? liveSummary.totalTds : 0)
+    : recordsPayments.reduce((sum, p) => sum + (p.transaction_type === 'REVERSAL' && p.tds_amount > 0 ? -p.tds_amount : p.tds_amount), 0);
+  const totalNet = isLive
+    ? (liveSummary ? liveSummary.totalNet : 0)
     : (totalCash + totalTds);
 
-  // Filter
-  const filtered = empty
+  // Filter and sort for MOCK mode
+  const mockFiltered = empty
     ? []
-    : allPayments
+    : recordsPayments
         .filter(p => {
           const matchesQuery = `${p.remittance_number ?? ''} ${p.invoice_number} ${p.customer_name} ${p.notes ?? ''}`
             .toLowerCase()
@@ -209,10 +234,43 @@ export function PaymentsLedger({
           );
         });
 
+  // Filter and sort for LIVE mode
+  const liveFiltered = (tdsFilter === 'All TDS sections')
+    ? livePayments
+    : livePayments.filter(p =>
+        (tdsFilter === 'No TDS' && (!p.tds_section || p.tds_amount === 0)) ||
+        p.tds_section === tdsFilter
+      );
+  const liveSorted = empty
+    ? []
+    : [...liveFiltered].sort((a, b) => {
+        const val = (item: PaymentItem) => {
+          if (sort === 'date') return item.payment_date;
+          if (sort === 'remittance') return item.remittance_number ?? '';
+          if (sort === 'invoice') return item.invoice_number;
+          if (sort === 'customer') return item.customer_name;
+          if (sort === 'cash') return item.payment_amount;
+          if (sort === 'tds') return item.tds_amount;
+          return item.net_settled;
+        };
+        const av = val(a);
+        const bv = val(b);
+        return (
+          (typeof av === 'number' && typeof bv === 'number'
+            ? av - bv
+            : String(av).localeCompare(String(bv))) * (asc ? 1 : -1)
+        );
+      });
+
   const count = Number(size);
-  const pages = Math.max(1, Math.ceil(filtered.length / count));
-  const current = Math.min(page, pages);
-  const rows = filtered.slice((current - 1) * count, current * count);
+  const mockPages = Math.max(1, Math.ceil(mockFiltered.length / count));
+  const mockCurrent = Math.min(page, mockPages);
+  const mockRows = mockFiltered.slice((mockCurrent - 1) * count, mockCurrent * count);
+
+  const rows = isLive ? liveSorted : mockRows;
+  const current = isLive ? page : mockCurrent;
+  const pages = isLive ? Math.max(1, liveTotalPages) : mockPages;
+  const totalCount = isLive ? liveTotal : mockFiltered.length;
 
   function reset() {
     setQuery('');
@@ -241,7 +299,7 @@ export function PaymentsLedger({
             <span>Total Settled</span>
           </div>
           <strong>{money(totalNet)}</strong>
-          <small>{allPayments.length} recorded payments in {fy}</small>
+          <small>{isLive ? liveTotal : recordsPayments.length} recorded payments in {fy}</small>
         </div>
         <div className="cf-metric">
           <div>
@@ -264,7 +322,7 @@ export function PaymentsLedger({
             <FileText size={16} />
             <span>Settlement Efficiency</span>
           </div>
-          <strong>{allPayments.length > 0 ? `${Math.round((totalCash / (totalNet || 1)) * 100)}%` : '0%'}</strong>
+          <strong>{(isLive ? liveTotal > 0 : recordsPayments.length > 0) ? `${Math.round((totalCash / (totalNet || 1)) * 100)}%` : '0%'}</strong>
           <small>Cash proportion of settlements</small>
         </div>
       </div>
@@ -319,7 +377,18 @@ export function PaymentsLedger({
         </Button>
       </div>
 
-      {rows.length ? (
+      {isLive && liveLoading ? (
+        <div className="cf-table-state cf-table-loading py-12 text-center" role="status" aria-live="polite">
+          <p className="cf-muted font-medium">Loading payments ledger…</p>
+        </div>
+      ) : isLive && liveError ? (
+        <div className="cf-table-state cf-table-error py-8 text-center" role="alert" style={{ margin: '1.5rem 0' }}>
+          <p className="font-semibold text-destructive mb-3">{liveError}</p>
+          <Button variant="outline" size="sm" onClick={() => setRetryTrigger(c => c + 1)}>
+            Retry
+          </Button>
+        </div>
+      ) : rows.length ? (
         <>
           {/* Desktop & Tablet Table (>= 601px) */}
           <div className="cf-table-container">
@@ -716,43 +785,45 @@ export function PaymentsLedger({
       )}
 
       {/* Pagination Footer */}
-      <footer className="cf-table-footer">
-        <span>
-          {filtered.length
-            ? `${(current - 1) * count + 1}–${Math.min(current * count, filtered.length)} of ${filtered.length}`
-            : '0 records'}
-        </span>
-        <div>
-          <FilterChoice
-            label="Rows per page"
-            value={size}
-            options={['5', '10', '25']}
-            onChange={val => {
-              setSize(val);
-              setPage(1);
-            }}
-          />
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Previous page"
-            disabled={current === 1}
-            onClick={() => setPage(current - 1)}
-          >
-            <ChevronLeft />
-          </Button>
-          <span>{current} / {pages}</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Next page"
-            disabled={current === pages}
-            onClick={() => setPage(current + 1)}
-          >
-            <ChevronRight />
-          </Button>
-        </div>
-      </footer>
+      {!(isLive && (liveLoading || liveError)) && (
+        <footer className="cf-table-footer">
+          <span>
+            {totalCount
+              ? `${(current - 1) * count + 1}–${Math.min(current * count, totalCount)} of ${totalCount}`
+              : '0 records'}
+          </span>
+          <div>
+            <FilterChoice
+              label="Rows per page"
+              value={size}
+              options={['5', '10', '25']}
+              onChange={val => {
+                setSize(val);
+                setPage(1);
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Previous page"
+              disabled={current <= 1}
+              onClick={() => setPage(current - 1)}
+            >
+              <ChevronLeft />
+            </Button>
+            <span>{current} / {pages}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Next page"
+              disabled={current >= pages}
+              onClick={() => setPage(current + 1)}
+            >
+              <ChevronRight />
+            </Button>
+          </div>
+        </footer>
+      )}
     </section>
   );
 }

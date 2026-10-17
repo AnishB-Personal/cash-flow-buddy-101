@@ -584,15 +584,16 @@ class ApiClient {
   }
 
   public async getPayments(params?: {
-    page?: number;
-    limit?: number;
-    fy?: string;
-    invoice_id?: number;
-    customer_id?: number;
-    payment_mode?: string;
-    transaction_type?: string;
-    date_from?: string;
-    date_to?: string;
+    page?: number | undefined;
+    limit?: number | undefined;
+    fy?: string | undefined;
+    invoice_id?: number | undefined;
+    customer_id?: number | undefined;
+    payment_mode?: string | undefined;
+    transaction_type?: string | undefined;
+    date_from?: string | undefined;
+    date_to?: string | undefined;
+    search?: string | undefined;
   }): Promise<{ page: number; limit: number; total: number; total_pages: number; summary: PaymentSummaryDTO; data: PaymentDTO[] }> {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set("page", String(params.page));
@@ -604,6 +605,7 @@ class ApiClient {
     if (params?.transaction_type) searchParams.set("transaction_type", params.transaction_type);
     if (params?.date_from) searchParams.set("date_from", params.date_from);
     if (params?.date_to) searchParams.set("date_to", params.date_to);
+    if (params?.search && params.search.trim()) searchParams.set("search", params.search.trim());
     const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
     return await this.request<{ page: number; limit: number; total: number; total_pages: number; summary: PaymentSummaryDTO; data: PaymentDTO[] }>(`/api/payments${query}`);
   }
@@ -791,6 +793,7 @@ export interface PaymentSummaryDTO {
   total_cash: string;
   total_tds: string;
   total_settled: string;
+  transaction_count?: number | undefined;
 }
 
 export interface PaymentCreateDTO {
