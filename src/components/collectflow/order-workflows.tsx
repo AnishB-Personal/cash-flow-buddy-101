@@ -16,6 +16,7 @@ import {
 } from '@/data/orders';
 import { useMockSession } from './session';
 import { FormSection, FieldError } from './demo-controls';
+import { apiClient } from '@/lib/api-client';
 
 export type OrderOperation = {
   action: OrderAction;
@@ -36,6 +37,9 @@ export function OrderWorkflowModal({
   close: () => void;
 }) {
   const { role, fy, references, demo, confirmOrder, revision } = useMockSession();
+  const isLive = apiClient.getMode() === 'live';
+  const currentUser = apiClient.getCurrentUser();
+  const activeRole = (isLive && currentUser?.role) ? currentUser.role : role;
   const [input, setInput] = useState<OrderInput>(operation.values);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -46,9 +50,9 @@ export function OrderWorkflowModal({
   const [dirty, setDirty] = useState(false);
 
   const submitting = useRef(false);
-  const origin = useRef({ revision, fy, role });
+  const origin = useRef({ revision, fy, role: activeRole });
   const trigger = useRef<HTMLElement | null>(typeof document === 'undefined' ? null : (document.activeElement as HTMLElement));
-  const allowed = orderPermitted(role, operation.action);
+  const allowed = orderPermitted(activeRole, operation.action);
 
   function requestClose() {
     if (pending) return;
@@ -64,11 +68,14 @@ export function OrderWorkflowModal({
     }
     setErrors({});
     try {
-      const rev = reviewOrder(operation.action, operation.target, parsed.data, role, demo.invoices, references, fy);
+      const invoiceList = (isLive && operation.record)
+        ? [operation.record, ...demo.invoices.filter(i => String(i.id) !== operation.target)]
+        : demo.invoices;
+      const rev = reviewOrder(operation.action, operation.target, parsed.data, activeRole, invoiceList, references, fy);
       setReview(rev);
       setStep('review');
       setError('');
-      origin.current = { revision, fy, role };
+      origin.current = { revision, fy, role: activeRole };
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Review failed. Try again.');
     }
@@ -80,10 +87,69 @@ export function OrderWorkflowModal({
     setPending(true);
     setError('');
     try {
-      if (origin.current.revision !== revision || origin.current.fy !== fy || origin.current.role !== role) {
-        throw new Error('Context changed. Return to the form and review again.');
+      if (isLive) {
+        const id = Number(operation.target);
+        if (operation.action === 'order-create') {
+          await apiClient.createOrder({
+            fy_code: input['fy_code'] || fy,
+            po_number: input['po_number'] ? input['po_number'].trim() : null,
+            po_date: input['po_date'] ?? new Date().toISOString().slice(0, 10),
+            customer_id: Number(input['customer_id']),
+            executive_id: input['executive_id'] ? Number(input['executive_id']) : null,
+            order_type: input['order_type'] || 'PO',
+            currency: input['currency'] || 'INR',
+            exchange_rate: Number(input['exchange_rate'] || '1.0'),
+            remarks: input['remarks'] || null,
+            items: [
+              {
+                item_description: input['line_item_description'] || 'Standard Line Item',
+                quantity: Number(input['quantity'] || '1.0'),
+                unit_price: Number(input['unit_price'] || '0.0'),
+                tax_rate: Number(input['tax_rate'] || '0.18'),
+              },
+            ],
+          });
+        } else if (operation.action === 'order-edit') {
+          if (isIssued) {
+            await apiClient.updateInvoiceMetadata(id, {
+              remarks: input['remarks'] || undefined,
+              due_date: input['due_date'] || undefined,
+              executive_id: input['executive_id'] ? Number(input['executive_id']) : undefined,
+            });
+          } else {
+            await apiClient.updateOrder(id, {
+              po_number: input['po_number'] || undefined,
+              po_date: input['po_date'] || undefined,
+              customer_id: input['customer_id'] ? Number(input['customer_id']) : undefined,
+              executive_id: input['executive_id'] ? Number(input['executive_id']) : undefined,
+              remarks: input['remarks'] || undefined,
+              items: input['line_item_description']
+                ? [
+                    {
+                      item_description: input['line_item_description'],
+                      quantity: Number(input['quantity'] || '1.0'),
+                      unit_price: Number(input['unit_price'] || '0.0'),
+                      tax_rate: Number(input['tax_rate'] || '0.18'),
+                    },
+                  ]
+                : undefined,
+            });
+          }
+        } else if (operation.action === 'order-convert') {
+          await apiClient.convertOrder(id, {
+            invoice_number: (input['invoice_number'] ?? '').trim(),
+            invoice_date: (input['invoice_date'] ?? '').trim(),
+            due_date: input['due_date'] ? input['due_date'].trim() : null,
+          });
+        } else if (operation.action === 'order-delete') {
+          await apiClient.deleteOrder(id);
+        }
+      } else {
+        if (origin.current.revision !== revision || origin.current.fy !== fy || origin.current.role !== activeRole) {
+          throw new Error('Context changed. Return to the form and review again.');
+        }
+        await confirmOrder(review);
       }
-      await confirmOrder(review);
       setStep('result');
       setDirty(false);
     } catch (e) {
@@ -663,7 +729,9 @@ export function OrderWorkflowModal({
                 </FormSection>
 
                 <p className="cf-drawer-message" role="status">
-                  {review.message}
+                  {isLive
+                    ? 'Live changes will be committed directly to PostgreSQL. Financial amounts, tax calculations and audit logs will be updated atomically.'
+                    : review.message}
                 </p>
 
                 <FormSection title="Financial review & impact">
@@ -696,7 +764,7 @@ export function OrderWorkflowModal({
 
                 {step === 'confirm' && (
                   <p className="cf-drawer-message">
-                    Confirm {operation.label.toLowerCase()} in this isolated demo?
+                    Confirm {operation.label.toLowerCase()} {isLive ? 'and apply to live ledger?' : 'in this isolated demo?'}
                   </p>
                 )}
 
@@ -711,7 +779,7 @@ export function OrderWorkflowModal({
                   >
                     Back to form
                   </Button>
-                  {review.supported && (
+                  {(review.supported || isLive) && (
                     <Button
                       disabled={pending || !allowed}
                       onClick={() => {

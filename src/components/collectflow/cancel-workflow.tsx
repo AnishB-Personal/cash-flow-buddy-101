@@ -8,6 +8,7 @@ import { invoiceAging, dateLabel, canPay } from '@/data/records';
 import { useMockSession } from './session';
 import { FormSection } from './demo-controls';
 import { invoiceCancelSchema } from '@/data/payments';
+import { apiClient } from '@/lib/api-client';
 
 export const CANCELLATION_REASON_PRESETS = [
   'Client rescinded contract / project scope cancelled',
@@ -26,6 +27,9 @@ export function CancelInvoiceDrawer({
   close: () => void;
 }) {
   const { role, revision, cancelInvoice } = useMockSession();
+  const isLive = apiClient.getMode() === 'live';
+  const currentUser = apiClient.getCurrentUser();
+  const activeRole = (isLive && currentUser?.role) ? currentUser.role : role;
   const [reason, setReason] = useState<string>('');
   const [step, setStep] = useState<'form' | 'review' | 'confirm' | 'result'>('form');
   const [error, setError] = useState<string>('');
@@ -34,12 +38,12 @@ export function CancelInvoiceDrawer({
   const [dirty, setDirty] = useState(false);
 
   const submitting = useRef(false);
-  const origin = useRef({ revision, role });
+  const origin = useRef({ revision, role: activeRole });
   const trigger = useRef<HTMLElement | null>(
     typeof document === 'undefined' ? null : (document.activeElement as HTMLElement)
   );
 
-  const allowed = canPay(role);
+  const allowed = canPay(activeRole);
   const hasPayments = invoice.payments && invoice.payments.length > 0;
   const isCancelled = invoice.computed_status === 'CANCELLED' || invoice.payment_status === 'CANCELLED';
 
@@ -65,10 +69,14 @@ export function CancelInvoiceDrawer({
     setPending(true);
     setError('');
     try {
-      if (origin.current.revision !== revision || origin.current.role !== role) {
-        throw new Error('Context changed. Return to the form and review again.');
+      if (isLive) {
+        await apiClient.cancelInvoice(invoice.id, { reason: reason.trim() });
+      } else {
+        if (origin.current.revision !== revision || origin.current.role !== activeRole) {
+          throw new Error('Context changed. Return to the form and review again.');
+        }
+        await cancelInvoice({ invoice_id: invoice.id, reason: reason.trim() });
       }
-      await cancelInvoice({ invoice_id: invoice.id, reason: reason.trim() });
       setStep('result');
       setDirty(false);
     } catch (e) {
@@ -301,7 +309,11 @@ export function CancelInvoiceDrawer({
                         color: 'var(--muted-foreground)',
                       }}
                     >
-                      <span>Simulated audit trail: reason will be appended to invoice remarks in demo state (no real API call is made).</span>
+                      <span>
+                        {isLive
+                          ? 'Audit trail: Reason will be recorded in PostgreSQL audit logs and invoice status set to CANCELLED.'
+                          : 'Simulated audit trail: reason will be appended to invoice remarks in demo state (no real API call is made).'}
+                      </span>
                       <span>{reason.length} / 500 characters</span>
                     </div>
                   </div>

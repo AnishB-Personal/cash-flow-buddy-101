@@ -11,6 +11,9 @@
  * - Tokens are NEVER printed to logs, console, or error traces.
  */
 
+import type { Invoice as InvoiceDTO } from "@/data/collectflow";
+export type { InvoiceDTO };
+
 export type ApiMode = "mock" | "live";
 
 export interface UserProfile {
@@ -485,6 +488,100 @@ class ApiClient {
       body: { new_password: newPassword },
     });
   }
+
+  // Purchase Order Operations (Stage 4C.3)
+  public async getOrders(params?: {
+    page?: number | undefined;
+    limit?: number | undefined;
+    search?: string | undefined;
+    fy?: string | undefined;
+    status?: string | undefined;
+  }): Promise<{ page: number; limit: number; total: number; total_pages: number; data: InvoiceDTO[] }> {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.search) searchParams.set("search", params.search);
+    if (params?.fy) searchParams.set("fy", params.fy);
+    if (params?.status) searchParams.set("status", params.status);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return await this.request<{ page: number; limit: number; total: number; total_pages: number; data: InvoiceDTO[] }>(`/api/orders${query}`);
+  }
+
+  public async getOrder(id: number): Promise<InvoiceDTO> {
+    return await this.request<InvoiceDTO>(`/api/orders/${id}`);
+  }
+
+  public async createOrder(data: OrderCreateDTO): Promise<InvoiceDTO> {
+    return await this.request<InvoiceDTO>("/api/orders", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  public async updateOrder(id: number, data: OrderUpdateDTO): Promise<InvoiceDTO> {
+    return await this.request<InvoiceDTO>(`/api/orders/${id}`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  public async deleteOrder(id: number): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>(`/api/orders/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  public async convertOrder(id: number, data: { invoice_number: string; invoice_date: string; due_date?: string | null | undefined }): Promise<InvoiceDTO & { success: boolean; invoice_id: number }> {
+    return await this.request<InvoiceDTO & { success: boolean; invoice_id: number }>(`/api/orders/${id}/convert`, {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  // Commercial Invoice Operations (Stage 4C.3)
+  public async getInvoices(params?: {
+    page?: number | undefined;
+    limit?: number | undefined;
+    search?: string | undefined;
+    fy?: string | undefined;
+    status?: string | undefined;
+    customer_id?: number | undefined;
+  }): Promise<{ page: number; limit: number; total: number; total_pages: number; data: InvoiceDTO[] }> {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.search) searchParams.set("search", params.search);
+    if (params?.fy) searchParams.set("fy", params.fy);
+    if (params?.status) searchParams.set("status", params.status);
+    if (params?.customer_id) searchParams.set("customer_id", String(params.customer_id));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return await this.request<{ page: number; limit: number; total: number; total_pages: number; data: InvoiceDTO[] }>(`/api/invoices${query}`);
+  }
+
+  public async getInvoice(id: number): Promise<{ invoice: InvoiceDTO; payments: any[]; items: any[] }> {
+    return await this.request<{ invoice: InvoiceDTO; payments: any[]; items: any[] }>(`/api/invoices/${id}`);
+  }
+
+  public async createInvoice(data: InvoiceCreateDTO): Promise<{ success: boolean; id: number; invoice_number: string; message: string }> {
+    return await this.request<{ success: boolean; id: number; invoice_number: string; message: string }>("/api/invoices", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  public async updateInvoiceMetadata(id: number, data: { remarks?: string | undefined; due_date?: string | undefined; executive_id?: number | undefined }): Promise<{ success: boolean; message: string }> {
+    return await this.request<{ success: boolean; message: string }>(`/api/invoices/${id}`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  public async cancelInvoice(id: number, data: { reason: string }): Promise<{ success: boolean; message: string; lifecycle_status: string }> {
+    return await this.request<{ success: boolean; message: string; lifecycle_status: string }>(`/api/invoices/${id}/cancel`, {
+      method: "POST",
+      body: data,
+    });
+  }
 }
 
 export interface ManagedUserDTO {
@@ -551,6 +648,74 @@ export interface CustomerUpdateDTO {
   phone_1?: string | null | undefined;
   phone_2?: string | null | undefined;
   is_active?: boolean | undefined;
+}
+
+export interface OrderItemCreateDTO {
+  item_description: string;
+  quantity?: number | undefined;
+  unit_price?: number | undefined;
+  tax_rate?: number | undefined;
+}
+
+export interface OrderCreateDTO {
+  fy_code: string;
+  po_number?: string | null | undefined;
+  po_date: string;
+  customer_id: number;
+  executive_id?: number | null | undefined;
+  order_type?: string | undefined;
+  currency?: string | undefined;
+  exchange_rate?: number | undefined;
+  exclusive_amount?: number | undefined;
+  tax_rate?: number | undefined;
+  tax_amount?: number | undefined;
+  total_amount?: number | undefined;
+  remarks?: string | null | undefined;
+  items?: OrderItemCreateDTO[] | undefined;
+  line_item_description?: string | undefined;
+  quantity?: number | undefined;
+  unit_price?: number | undefined;
+}
+
+export interface OrderUpdateDTO {
+  po_number?: string | null | undefined;
+  po_date?: string | null | undefined;
+  customer_id?: number | null | undefined;
+  executive_id?: number | null | undefined;
+  currency?: string | null | undefined;
+  exchange_rate?: number | null | undefined;
+  remarks?: string | null | undefined;
+  items?: OrderItemCreateDTO[] | null | undefined;
+  line_item_description?: string | undefined;
+  quantity?: number | undefined;
+  unit_price?: number | undefined;
+  tax_rate?: number | undefined;
+}
+
+export interface InvoiceCreateDTO {
+  fy_code: string;
+  invoice_number: string;
+  invoice_date: string;
+  due_date?: string | null | undefined;
+  customer_id: number;
+  executive_id?: number | null | undefined;
+  executive_name?: string | null | undefined;
+  order_type?: string | undefined;
+  po_number?: string | null | undefined;
+  po_date?: string | null | undefined;
+  currency?: string | undefined;
+  exchange_rate?: number | undefined;
+  exclusive_amount?: number | undefined;
+  tax_rate?: number | undefined;
+  tax_amount?: number | undefined;
+  total_amount?: number | undefined;
+  remarks?: string | null | undefined;
+  items?: {
+    description: string;
+    quantity?: number | undefined;
+    unit_price?: number | undefined;
+    tax_rate?: number | undefined;
+  }[] | undefined;
 }
 
 export const apiClient = new ApiClient();

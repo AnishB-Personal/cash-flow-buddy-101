@@ -144,6 +144,24 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   const [cancelInvoice, setCancelInvoice] = useState<Invoice | null>(null);
   const [correctionPayment, setCorrectionPayment] = useState<PaymentItem | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [liveOrders, setLiveOrders] = useState<Invoice[]>([]);
+  const [liveInvoices, setLiveInvoices] = useState<Invoice[]>([]);
+
+  const fetchLiveRecords = useCallback(async () => {
+    if (!isLive) return;
+    try {
+      const fyFilter = (fy && fy !== "ALL" && fy !== "All") ? fy : undefined;
+      const [ordersRes, invoicesRes] = await Promise.all([
+        apiClient.getOrders({ fy: fyFilter }),
+        apiClient.getInvoices({ fy: fyFilter }),
+      ]);
+      setLiveOrders(ordersRes.data || []);
+      setLiveInvoices(invoicesRes.data || []);
+    } catch (err) {
+      console.error("Failed to fetch live orders and invoices:", err);
+    }
+  }, [isLive, fy]);
+
   const isModalOpen = Boolean(
     record ||
     orderOp ||
@@ -250,6 +268,12 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     checkLiveSession();
   }, [checkLiveSession]);
 
+  useEffect(() => {
+    if (isLive && liveAuthState === "authenticated") {
+      void fetchLiveRecords();
+    }
+  }, [isLive, liveAuthState, fetchLiveRecords]);
+
   function unavailable(action: string) {
     setNotice(
       `${action} is unavailable — backend integration is not connected. No records have changed.`,
@@ -264,18 +288,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     setPaymentInvoice(row);
   }
   function startCancelInvoice(row: Invoice) {
-    if (isLive) {
-      setNotice("Invoice cancellation is deferred to Stage 4C.3 under PostgreSQL architecture.");
-      return;
-    }
     setRecord(null);
     setCancelInvoice(row);
   }
   function startCreateOrder() {
-    if (isLive) {
-      setNotice("Purchase order creation is deferred to Stage 4C.3 under PostgreSQL architecture.");
-      return;
-    }
     setRecord(null);
     setOrderOp({
       action: "order-create",
@@ -286,10 +302,6 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     });
   }
   function startEditOrder(row: Invoice) {
-    if (isLive) {
-      setNotice("Purchase order editing is deferred to Stage 4C.3 under PostgreSQL architecture.");
-      return;
-    }
     setRecord(null);
     setOrderOp({
       action: "order-edit",
@@ -301,10 +313,6 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     });
   }
   function startConvertOrder(row: Invoice) {
-    if (isLive) {
-      setNotice("Order conversion to invoice is deferred to Stage 4C.3 under PostgreSQL architecture.");
-      return;
-    }
     setRecord(null);
     setOrderOp({
       action: "order-convert",
@@ -316,10 +324,6 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     });
   }
   function startDeleteOrder(row: Invoice) {
-    if (isLive) {
-      setNotice("Purchase order deletion is deferred to Stage 4C.3 under PostgreSQL architecture.");
-      return;
-    }
     setRecord(null);
     setOrderOp({
       action: "order-delete",
@@ -603,7 +607,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                     options={references.years.map((year) => year.code)}
                     onChange={setFy}
                   />
-                  {page === "Orders" && canWrite(role) && !isLive && (
+                  {page === "Orders" && canWrite(activeRole) && (
                     <Button onClick={startCreateOrder}>
                       <Plus size={17} />
                       New Order
@@ -611,7 +615,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                   )}
                 </div>
               </header>
-              {isLive && page !== "Customers" && page !== "Settings" && (
+              {isLive && page !== "Customers" && page !== "Settings" && page !== "Orders" && page !== "Invoices" && (
                 <div style={{
                   padding: "10px 16px",
                   margin: "0 0 16px 0",
@@ -625,7 +629,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                   justifyContent: "space-between"
                 }}>
                   <span>
-                    <strong>Stage Notice:</strong> {page} screen is not yet integrated with the live backend (scheduled for Stage 4C.3–4C.5). Displaying synthetic demo preview data. Financial mutations are disabled.
+                    <strong>Stage Notice:</strong> {page} screen is not yet integrated with the live backend (scheduled for Stage 4C.4–4C.5). Displaying synthetic demo preview data. Financial mutations are disabled.
                   </span>
                 </div>
               )}
@@ -648,6 +652,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                     title="Refresh records"
                     onClick={() => {
                       setState("Loading");
+                      if (isLive) void fetchLiveRecords();
                       setTimeout(() => setState("Live"), 500);
                     }}
                   >
@@ -729,11 +734,11 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                           </div>
                         </header>
                         <RecordList
-                          records={demo.invoices}
-                          key={`${recent}-${fy}-${role}`}
+                          records={isLive ? (recent === "Orders" ? liveOrders : liveInvoices) : demo.invoices}
+                          key={`${recent}-${fy}-${activeRole}-${liveOrders.length}-${liveInvoices.length}`}
                           screen={recent as Screen}
                           fy={fy}
-                          role={role}
+                          role={activeRole}
                           bucket={null}
                           clearBucket={() => setBucket(null)}
                           open={open}
@@ -760,11 +765,11 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                         </span>
                       </div>
                       <RecordList
-                        records={demo.invoices}
-                        key={`${page}-${fy}-${role}-${bucket}`}
+                        records={isLive ? liveInvoices : demo.invoices}
+                        key={`${page}-${fy}-${activeRole}-${bucket}-${liveInvoices.length}`}
                         screen="AR Aging"
                         fy={fy}
-                        role={role}
+                        role={activeRole}
                         bucket={bucket}
                         clearBucket={() => setBucket(null)}
                         open={open}
@@ -780,11 +785,11 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                   )}
                   {(page === "Orders" || page === "Invoices") && (
                     <RecordList
-                      records={demo.invoices}
-                      key={`${page}-${fy}-${role}`}
+                      records={isLive ? (page === "Orders" ? liveOrders : liveInvoices) : demo.invoices}
+                      key={`${page}-${fy}-${activeRole}-${liveOrders.length}-${liveInvoices.length}`}
                       screen={page}
                       fy={fy}
-                      role={role}
+                      role={activeRole}
                       bucket={null}
                       clearBucket={() => setBucket(null)}
                       open={open}
@@ -891,10 +896,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
           </div>
         </div>
         <RecordDrawer
-          key={revision}
-          record={record ? (demo.invoices.find((row) => row.id === record.id) ?? null) : null}
+          key={`${revision}-${record?.id}-${isLive}`}
+          record={record ? (isLive ? ((kind === "order" ? liveOrders : liveInvoices).find((row) => row.id === record.id) ?? record) : (demo.invoices.find((row) => row.id === record.id) ?? null)) : null}
           kind={kind}
-          role={role}
+          role={activeRole}
           close={() => setRecord(null)}
           unavailable={unavailable}
           container={mobile ? frame : undefined}
@@ -991,7 +996,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
           <OrderWorkflowModal
             operation={orderOp}
             container={mobile ? frame : undefined}
-            close={() => setOrderOp(null)}
+            close={() => {
+              setOrderOp(null);
+              if (isLive) void fetchLiveRecords();
+            }}
           />
         )}
         {paymentInvoice && (
@@ -1005,7 +1013,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
           <CancelInvoiceDrawer
             invoice={cancelInvoice}
             container={mobile ? frame : undefined}
-            close={() => setCancelInvoice(null)}
+            close={() => {
+              setCancelInvoice(null);
+              if (isLive) void fetchLiveRecords();
+            }}
           />
         )}
         {correctionPayment && (
