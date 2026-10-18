@@ -47,6 +47,7 @@ import {
   type ReportFilterScope,
   agingBuckets,
   type AgingBucket,
+  type PaymentLedgerRow,
   type CustomerExposureRow,
   type ExecutiveAttainmentRow,
   type ArAgingReportRow,
@@ -61,6 +62,8 @@ import {
   type ArAgingReportDTO,
   type ExecutiveAttainmentReportDTO,
   type CustomerExposureReportDTO,
+  type PaymentDTO,
+  type PaymentSummaryDTO,
 } from "@/lib/api-client";
 
 function useOptionalSession() {
@@ -121,6 +124,8 @@ export function ReportsHub({
 
   // Live datasets
   const [liveInvoices, setLiveInvoices] = useState<Invoice[]>([]);
+  const [livePayments, setLivePayments] = useState<PaymentDTO[]>([]);
+  const [livePaymentsSummary, setLivePaymentsSummary] = useState<PaymentSummaryDTO | null>(null);
   const [liveTargets, setLiveTargets] = useState<SalesTarget[]>([]);
   const [liveCustomers, setLiveCustomers] = useState<any[]>([]);
   const [liveSummary, setLiveSummary] = useState<ReportingSummaryDTO | null>(null);
@@ -138,6 +143,8 @@ export function ReportsHub({
     if (!isLive) return;
     if (empty) {
       setLiveInvoices([]);
+      setLivePayments([]);
+      setLivePaymentsSummary(null);
       setLiveTargets([]);
       setLiveCustomers([]);
       setLiveSummary(null);
@@ -154,15 +161,18 @@ export function ReportsHub({
       apiClient.getExecutiveAttainment({ fy: selectedFy !== "ALL" ? selectedFy : undefined }),
       apiClient.getCustomerExposure({ fy: selectedFy !== "ALL" ? selectedFy : undefined, as_of_date: activeAsOfDate }),
       apiClient.getAllInvoices({ fy: selectedFy !== "ALL" ? selectedFy : undefined }),
+      apiClient.getAllPayments({ fy: selectedFy !== "ALL" ? selectedFy : undefined }),
       apiClient.getTargets(selectedFy !== "ALL" ? { fy: selectedFy } : undefined),
       apiClient.getCustomers(),
     ])
-      .then(([summaryRes, agingRes, attainmentRes, exposureRes, invRes, targetRes, custRes]) => {
+      .then(([summaryRes, agingRes, attainmentRes, exposureRes, invRes, payRes, targetRes, custRes]) => {
         setLiveSummary(summaryRes);
         setLiveAging(agingRes);
         setLiveAttainment(attainmentRes);
         setLiveExposure(exposureRes);
         setLiveInvoices(invRes.data);
+        setLivePayments(payRes.data);
+        setLivePaymentsSummary(payRes.summary);
         setLiveTargets(
           targetRes.targets.map((t) => {
             const yearly = Number(t.yearly_target || t.target_amount || 0);
@@ -258,20 +268,91 @@ export function ReportsHub({
   }, [allRecords, filterScope, pinnedReportingDate, isLive, liveSummary, activeAsOfDate, isFiltered]);
 
   const paymentsReport = useMemo(() => {
-    const rep = getPaymentsLedgerReport(allRecords, filterScope);
-    if (isLive && liveSummary && !isFiltered) {
+    if (isLive) {
+      const invMap = new Map(liveInvoices.map((inv) => [inv.id, inv]));
+
+      const filteredBackendRows = livePayments.filter((p) => {
+        if (customerFilter && customerFilter !== "All customers" && p.customer_name !== customerFilter) return false;
+        const inv = invMap.get(p.invoice_id);
+        const execName = inv?.executive_name || (inv as any)?.executive?.full_name || (inv as any)?.executive?.username || "";
+        if (executiveFilter && executiveFilter !== "All executives" && execName !== executiveFilter) return false;
+        if (searchQuery) {
+          const q = searchQuery.trim().toLowerCase();
+          const remittance = (p.remittance_number || "").toLowerCase();
+          const invNum = (p.invoice_number || "").toLowerCase();
+          const custName = (p.customer_name || "").toLowerCase();
+          const poNum = (inv?.po_number || "").toLowerCase();
+          const mode = (p.payment_mode || "").toLowerCase();
+          const notes = (p.notes || "").toLowerCase();
+          const txType = (p.transaction_type || "").toLowerCase();
+          if (
+            !remittance.includes(q) &&
+            !invNum.includes(q) &&
+            !custName.includes(q) &&
+            !poNum.includes(q) &&
+            !mode.includes(q) &&
+            !notes.includes(q) &&
+            !txType.includes(q)
+          ) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      const mappedRows: PaymentLedgerRow[] = filteredBackendRows.map((p) => {
+        const inv = invMap.get(p.invoice_id);
+        const pAmount = Number(p.cash_amount ?? p.payment_amount ?? 0);
+        const tAmount = Number(p.tds_amount ?? 0);
+        const sAmount = Number(p.total_settled ?? p.net_settled ?? (pAmount + tAmount));
+
+        return {
+          id: p.id,
+          invoice_id: p.invoice_id,
+          fy_code: p.fy_code || inv?.fy_code || selectedFy,
+          remittance_number: p.remittance_number || `TX-${p.id}`,
+          payment_date: p.payment_date || "",
+          invoice_number: p.invoice_number || inv?.invoice_number || `INV-${p.invoice_id}`,
+          po_number: inv?.po_number || "—",
+          customer_name: p.customer_name || inv?.customer_name || "—",
+          executive_name: inv?.executive_name || "—",
+          payment_mode: p.payment_mode || "—",
+          tds_section: p.tds_section || "—",
+          payment_amount: pAmount,
+          tds_amount: tAmount,
+          total_settled: sAmount,
+          transaction_type: p.transaction_type,
+          parent_transaction_id: p.parent_transaction_id,
+          invoice_lifecycle_status: p.invoice_lifecycle_status || (inv as any)?.lifecycle_status || (inv?.computed_status === "CANCELLED" ? "CANCELLED" : undefined),
+          is_superseded: p.is_superseded,
+          notes: p.notes,
+        };
+      });
+
+      const totalCash = isFiltered
+        ? mappedRows.reduce((acc, row) => acc + row.payment_amount, 0)
+        : Number(livePaymentsSummary?.total_cash ?? mappedRows.reduce((acc, row) => acc + row.payment_amount, 0));
+      const totalTds = isFiltered
+        ? mappedRows.reduce((acc, row) => acc + row.tds_amount, 0)
+        : Number(livePaymentsSummary?.total_tds ?? mappedRows.reduce((acc, row) => acc + row.tds_amount, 0));
+      const totalSettled = isFiltered
+        ? mappedRows.reduce((acc, row) => acc + row.total_settled, 0)
+        : Number(livePaymentsSummary?.total_settled ?? mappedRows.reduce((acc, row) => acc + row.total_settled, 0));
+
       return {
-        ...rep,
+        rows: mappedRows,
         summary: {
-          ...rep.summary,
-          total_settled: Number(liveSummary.total_settled),
-          total_cash: Number(liveSummary.total_cash),
-          total_tds: Number(liveSummary.total_tds),
+          total_cash: totalCash,
+          total_tds: totalTds,
+          total_settled: totalSettled,
+          transaction_count: mappedRows.length,
         },
       };
     }
+
+    const rep = getPaymentsLedgerReport(allRecords, filterScope);
     return rep;
-  }, [allRecords, filterScope, isLive, liveSummary, isFiltered]);
+  }, [allRecords, filterScope, isLive, livePayments, livePaymentsSummary, liveInvoices, isFiltered, customerFilter, executiveFilter, searchQuery, selectedFy]);
 
   const customerReport = useMemo(() => {
     if (isLive && liveExposure) {
@@ -1191,10 +1272,45 @@ function PaymentsLedgerView({
                   <tr key={row.id} data-testid={`payment-row-${row.id}`}>
                     <td>{dateLabel(row.payment_date)}</td>
                     <td>
-                      <strong>{row.remittance_number}</strong>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <strong>{row.remittance_number}</strong>
+                        {row.transaction_type && row.transaction_type !== "PAYMENT" && (
+                          <Badge
+                            variant="outline"
+                            style={{
+                              fontSize: "10px",
+                              padding: "1px 5px",
+                              borderColor: row.transaction_type === "REVERSAL" ? "#ef4444" : "#8b5cf6",
+                              color: row.transaction_type === "REVERSAL" ? "#ef4444" : "#8b5cf6",
+                            }}
+                          >
+                            {row.transaction_type}
+                          </Badge>
+                        )}
+                        {row.is_superseded && (
+                          <Badge variant="outline" style={{ fontSize: "10px", padding: "1px 5px", color: "#6b7280" }}>
+                            SUPERSEDED
+                          </Badge>
+                        )}
+                      </div>
+                      {row.parent_transaction_id && (
+                        <small style={{ display: "block", color: "var(--cf-text-secondary)" }}>
+                          Ref: #{row.parent_transaction_id}
+                        </small>
+                      )}
                     </td>
                     <td>
-                      <strong>{row.invoice_number}</strong>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <strong>{row.invoice_number}</strong>
+                        {row.invoice_lifecycle_status === "CANCELLED" && (
+                          <Badge
+                            variant="outline"
+                            style={{ fontSize: "10px", padding: "1px 5px", color: "#ef4444", borderColor: "#ef4444" }}
+                          >
+                            CANCELLED
+                          </Badge>
+                        )}
+                      </div>
                       <small style={{ display: "block", color: "var(--cf-text-secondary)" }}>
                         PO: {row.po_number}
                       </small>
@@ -1208,9 +1324,13 @@ function PaymentsLedgerView({
                         {row.tds_section}
                       </span>
                     </td>
-                    <td className="cf-number">{money(row.payment_amount)}</td>
-                    <td className="cf-number">{money(row.tds_amount)}</td>
-                    <td className="cf-number">
+                    <td className="cf-number" style={row.payment_amount < 0 ? { color: "#ef4444" } : undefined}>
+                      {money(row.payment_amount)}
+                    </td>
+                    <td className="cf-number" style={row.tds_amount < 0 ? { color: "#ef4444" } : undefined}>
+                      {money(row.tds_amount)}
+                    </td>
+                    <td className="cf-number" style={row.total_settled < 0 ? { color: "#ef4444" } : undefined}>
                       <strong>{money(row.total_settled)}</strong>
                     </td>
                   </tr>
@@ -1224,26 +1344,50 @@ function PaymentsLedgerView({
             {paginatedRows.map((row) => (
               <article className="cf-record-card" key={row.id}>
                 <header>
-                  <strong>{row.remittance_number}</strong>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <strong>{row.remittance_number}</strong>
+                    {row.transaction_type && row.transaction_type !== "PAYMENT" && (
+                      <Badge
+                        variant="outline"
+                        style={{
+                          fontSize: "10px",
+                          padding: "1px 5px",
+                          borderColor: row.transaction_type === "REVERSAL" ? "#ef4444" : "#8b5cf6",
+                          color: row.transaction_type === "REVERSAL" ? "#ef4444" : "#8b5cf6",
+                        }}
+                      >
+                        {row.transaction_type}
+                      </Badge>
+                    )}
+                  </div>
                   <Badge variant="outline">{row.payment_mode}</Badge>
                 </header>
                 <h3>{row.customer_name}</h3>
                 <dl>
                   <div>
                     <dt>Total Settled</dt>
-                    <dd className="cf-balance">{money(row.total_settled)}</dd>
+                    <dd className="cf-balance" style={row.total_settled < 0 ? { color: "#ef4444" } : undefined}>
+                      {money(row.total_settled)}
+                    </dd>
                   </div>
                   <div>
                     <dt>Cash Received</dt>
-                    <dd>{money(row.payment_amount)}</dd>
+                    <dd style={row.payment_amount < 0 ? { color: "#ef4444" } : undefined}>
+                      {money(row.payment_amount)}
+                    </dd>
                   </div>
                   <div>
                     <dt>TDS Deducted</dt>
-                    <dd>{money(row.tds_amount)}</dd>
+                    <dd style={row.tds_amount < 0 ? { color: "#ef4444" } : undefined}>
+                      {money(row.tds_amount)}
+                    </dd>
                   </div>
                   <div>
                     <dt>Invoice</dt>
-                    <dd>{row.invoice_number}</dd>
+                    <dd>
+                      {row.invoice_number}
+                      {row.invoice_lifecycle_status === "CANCELLED" ? " (CANCELLED)" : ""}
+                    </dd>
                   </div>
                   <div>
                     <dt>Payment Date</dt>

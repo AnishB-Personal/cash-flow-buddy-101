@@ -637,6 +637,38 @@ class ApiClient {
     return await this.request<{ page: number; limit: number; total: number; total_pages: number; summary: PaymentSummaryDTO; data: PaymentDTO[] }>(`/api/payments${query}`);
   }
 
+  public async getAllPayments(params?: {
+    fy?: string | undefined;
+    invoice_id?: number | undefined;
+    customer_id?: number | undefined;
+    payment_mode?: string | undefined;
+    transaction_type?: string | undefined;
+    date_from?: string | undefined;
+    date_to?: string | undefined;
+    search?: string | undefined;
+  }): Promise<{ page: number; limit: number; total: number; total_pages: number; summary: PaymentSummaryDTO; data: PaymentDTO[] }> {
+    const firstPage = await this.getPayments({ ...params, page: 1, limit: 500 });
+    let allData = [...firstPage.data];
+    if (firstPage.total_pages > 1) {
+      const remainingPages = [];
+      for (let p = 2; p <= firstPage.total_pages; p++) {
+        remainingPages.push(this.getPayments({ ...params, page: p, limit: 500 }));
+      }
+      const pageResults = await Promise.all(remainingPages);
+      for (const res of pageResults) {
+        allData = allData.concat(res.data);
+      }
+    }
+    return {
+      page: 1,
+      limit: allData.length,
+      total: firstPage.total,
+      total_pages: 1,
+      summary: firstPage.summary,
+      data: allData,
+    };
+  }
+
   public async createPayment(data: PaymentCreateDTO): Promise<{ success: boolean; payment_id: number; message: string; invoice_summary?: any; summary?: any }> {
     const headers: Record<string, string> = {};
     if (data.idempotency_key) {

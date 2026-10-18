@@ -149,6 +149,11 @@ export interface PaymentLedgerRow {
   payment_amount: number;
   tds_amount: number;
   total_settled: number;
+  transaction_type?: string | undefined;
+  parent_transaction_id?: number | null | undefined;
+  invoice_lifecycle_status?: string | null | undefined;
+  is_superseded?: boolean | undefined;
+  notes?: string | null | undefined;
 }
 
 export interface PaymentLedgerSummary {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { FinancialDashboard } from '@/components/collectflow/dashboard';
@@ -233,6 +233,39 @@ describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () =
           computed_status: "OVERDUE",
           payments: [],
         } as any,
+      ],
+    });
+    vi.spyOn(apiClient, 'getAllPayments').mockResolvedValue({
+      page: 1,
+      limit: 1,
+      total: 1,
+      total_pages: 1,
+      summary: {
+        total_cash: "432000.00",
+        total_tds: "40000.00",
+        total_settled: "472000.00",
+        transaction_count: 1,
+      },
+      data: [
+        {
+          id: 1,
+          invoice_id: 1,
+          transaction_type: "PAYMENT",
+          cash_amount: "432000.00",
+          payment_amount: "432000.00",
+          tds_amount: "40000.00",
+          total_settled: "472000.00",
+          net_settled: "472000.00",
+          tds_section: "194C",
+          payment_date: "2026-04-15",
+          payment_mode: "NEFT",
+          remittance_number: "UTR-2026-001",
+          invoice_number: "INV-2026-001",
+          customer_id: 1,
+          customer_name: "Nexus Enterprises",
+          fy_code: "FY 2026-27",
+          recorded_by: 1,
+        },
       ],
     });
     vi.spyOn(apiClient, 'getCustomers').mockResolvedValue([
@@ -630,6 +663,130 @@ describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () =
         // Gross billed rendered: ₹15,34,000
         expect(screen.getAllByText('₹15,34,000').length).toBeGreaterThanOrEqual(1);
       });
+    });
+
+    it('retains PAYMENT and REVERSAL events for CANCELLED invoice in LIVE Collections Ledger with zero net settlement', async () => {
+      // Seed payment ledger with:
+      // 1. Original PAYMENT of ₹1,00,000 cash + ₹18,000 TDS = ₹1,18,000
+      // 2. Compensating REVERSAL of -₹1,00,000 cash + -₹18,000 TDS = -₹1,18,000
+      // 3. Invoice is CANCELLED
+      const cancelledInvoicePayments: any[] = [
+        {
+          id: 101,
+          invoice_id: 99,
+          transaction_type: "PAYMENT",
+          is_superseded: true,
+          cash_amount: "100000.00",
+          payment_amount: "100000.00",
+          tds_amount: "18000.00",
+          total_settled: "118000.00",
+          net_settled: "118000.00",
+          tds_section: "194C",
+          payment_date: "2026-04-10",
+          payment_mode: "NEFT",
+          remittance_number: "UTR-ORIG-101",
+          notes: "Initial customer advance",
+          recorded_by: 1,
+          invoice_number: "INV-2026-CANCELLED-99",
+          invoice_lifecycle_status: "CANCELLED",
+          customer_id: 1,
+          customer_name: "Nexus Enterprises",
+          fy_code: "FY 2026-27",
+        },
+        {
+          id: 102,
+          invoice_id: 99,
+          parent_transaction_id: 101,
+          transaction_type: "REVERSAL",
+          is_superseded: false,
+          cash_amount: "-100000.00",
+          payment_amount: "-100000.00",
+          tds_amount: "-18000.00",
+          total_settled: "-118000.00",
+          net_settled: "-118000.00",
+          tds_section: "194C",
+          payment_date: "2026-04-12",
+          payment_mode: "NEFT",
+          remittance_number: "UTR-ORIG-101",
+          notes: "Reversal of Payment #101: Order cancelled by client",
+          recorded_by: 1,
+          invoice_number: "INV-2026-CANCELLED-99",
+          invoice_lifecycle_status: "CANCELLED",
+          customer_id: 1,
+          customer_name: "Nexus Enterprises",
+          fy_code: "FY 2026-27",
+        },
+      ];
+
+      vi.spyOn(apiClient, 'getAllPayments').mockResolvedValue({
+        page: 1,
+        limit: 2,
+        total: 2,
+        total_pages: 1,
+        summary: {
+          total_cash: "0.00",
+          total_tds: "0.00",
+          total_settled: "0.00",
+          transaction_count: 2,
+        },
+        data: cancelledInvoicePayments,
+      });
+
+      render(
+        <MockSessionProvider>
+          <ReportsHub />
+        </MockSessionProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tab-payments')).toBeInTheDocument();
+      });
+
+      // Switch to Collections & Payments Ledger tab
+      fireEvent.click(screen.getByTestId('tab-payments'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('payments-report-table')).toBeInTheDocument();
+      });
+
+      // 1. Both historical events are present in the table
+      const paymentRow = screen.getByTestId('payment-row-101');
+      const reversalRow = screen.getByTestId('payment-row-102');
+      expect(paymentRow).toBeInTheDocument();
+      expect(reversalRow).toBeInTheDocument();
+
+      // 2. Both rows show the cancelled invoice number and CANCELLED badge
+      expect(within(paymentRow).getByText('INV-2026-CANCELLED-99')).toBeInTheDocument();
+      expect(within(reversalRow).getByText('INV-2026-CANCELLED-99')).toBeInTheDocument();
+      expect(within(paymentRow).getByText('CANCELLED')).toBeInTheDocument();
+      expect(within(reversalRow).getByText('CANCELLED')).toBeInTheDocument();
+
+      // 3. Reversal badge is shown on reversal transaction
+      expect(within(reversalRow).getByText('REVERSAL')).toBeInTheDocument();
+
+      // 4. Signed monetary amounts:
+      // Original PAYMENT: Cash ₹1,00,000, TDS ₹18,000, Total Settled ₹1,18,000
+      expect(within(paymentRow).getByText('₹1,00,000')).toBeInTheDocument();
+      expect(within(paymentRow).getByText('₹18,000')).toBeInTheDocument();
+      expect(within(paymentRow).getByText('₹1,18,000')).toBeInTheDocument();
+
+      // REVERSAL: Signed negative amounts -₹1,00,000, -₹18,000, -₹1,18,000
+      expect(within(reversalRow).getByText('-₹1,00,000')).toBeInTheDocument();
+      expect(within(reversalRow).getByText('-₹18,000')).toBeInTheDocument();
+      expect(within(reversalRow).getByText('-₹1,18,000')).toBeInTheDocument();
+
+      // 5. Accurate Net Settlements: Summary KPI reflects exact ₹0 net settlement
+      const settledKpi = screen.getByTestId('kpi-payments-settled');
+      expect(within(settledKpi).getByText('₹0')).toBeInTheDocument();
+
+      const cashKpi = screen.getByTestId('kpi-cash-collected');
+      expect(within(cashKpi).getByText('₹0')).toBeInTheDocument();
+
+      const tdsKpi = screen.getByTestId('kpi-tds-deducted');
+      expect(within(tdsKpi).getByText('₹0')).toBeInTheDocument();
+
+      const countKpi = screen.getByTestId('kpi-transaction-count');
+      expect(within(countKpi).getByText('2')).toBeInTheDocument();
     });
   });
 });
