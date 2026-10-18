@@ -701,18 +701,19 @@ test.describe("Part 1: Functional LIVE Browser Workflows (24 Tests)", () => {
     const outAmt = parseMoneyStr(outstandingText);
 
     const browserFinancials = {
+      run_id: "uat_spec_browser_20",
       captured_at: new Date().toISOString(),
       source: "Playwright Headless Chromium DOM",
       frontend_url: FRONTEND_URL,
       invoiced_gross: invGross,
       exclusive_amount: exclAmt,
-      tax_amount: taxAmt,
+      tax_amount: null,
       cash_amount: cashAmt,
       tds_amount: tdsAmt,
       total_settled: settledAmt,
       total_outstanding: outAmt,
-      unbilled_po_gross: "295000.00",
-      unbilled_recognized_ar: "0.00",
+      unbilled_po_gross: null,
+      unbilled_recognized_ar: null,
       annual_target: parseMoneyStr(targetText),
       raw_dom_values: {
         invoiced_gross_kpi: invoicedGrossText,
