@@ -120,6 +120,38 @@ const mockTargetsResponse = {
   ],
 };
 
+const mockCustomerExposure = {
+  as_of_date: "2026-04-30",
+  fy_code: "FY 2026-27",
+  total_outstanding: "1062000.00",
+  rows: [
+    {
+      customer_id: 1,
+      customer_name: "Nexus Enterprises",
+      billing_name: "Nexus Enterprises",
+      gstin: "29AAAAA0000A1Z5",
+      state: "Karnataka",
+      total_orders: 5,
+      total_billed: "1534000.00",
+      total_cash: "432000.00",
+      total_tds: "40000.00",
+      total_settled: "472000.00",
+      outstanding_balance: "1062000.00",
+      unbilled_value: "295000.00",
+      overdue_exposure: "826000.00",
+    },
+  ],
+  summary: {
+    total_billed: "1534000.00",
+    total_cash: "432000.00",
+    total_tds: "40000.00",
+    total_settled: "472000.00",
+    total_outstanding: "1062000.00",
+    total_overdue: "826000.00",
+    customer_count: 1,
+  },
+};
+
 describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -139,10 +171,42 @@ describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () =
     vi.spyOn(apiClient, 'getReportingSummary').mockResolvedValue(mockReportingSummary);
     vi.spyOn(apiClient, 'getArAging').mockResolvedValue(mockArAging);
     vi.spyOn(apiClient, 'getExecutiveAttainment').mockResolvedValue(mockExecutiveAttainment);
+    vi.spyOn(apiClient, 'getCustomerExposure').mockResolvedValue(mockCustomerExposure);
     vi.spyOn(apiClient, 'getTargets').mockResolvedValue(mockTargetsResponse);
     vi.spyOn(apiClient, 'getInvoices').mockResolvedValue({
       page: 1,
       limit: 100,
+      total: 1,
+      total_pages: 1,
+      data: [
+        {
+          id: 1,
+          fy_code: "FY 2026-27",
+          order_type: "PO",
+          po_number: "PO-2026-001",
+          po_date: "2026-04-01",
+          invoice_number: "INV-2026-001",
+          invoice_date: "2026-04-05",
+          due_date: "2026-04-20",
+          customer_id: 1,
+          customer_name: "Nexus Enterprises",
+          executive_id: 5,
+          executive_name: "Arjun Mehta",
+          exclusive_amount: 200000.0,
+          tax_amount: 36000.0,
+          total_amount: 236000.0,
+          total_cash_paid: 0.0,
+          total_tds_deducted: 0.0,
+          total_paid: 0.0,
+          outstanding_balance: 236000.0,
+          computed_status: "OVERDUE",
+          payments: [],
+        } as any,
+      ],
+    });
+    vi.spyOn(apiClient, 'getAllInvoices').mockResolvedValue({
+      page: 1,
+      limit: 1,
       total: 1,
       total_pages: 1,
       data: [
@@ -418,6 +482,153 @@ describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () =
           fy: 'FY 2026-27',
           scope: 'all',
         });
+      });
+    });
+
+    it('unambiguously labels preview counts and totals as sample-only in Steps 2, 3, and 4', async () => {
+      render(
+        <MockSessionProvider>
+          <ExportDrawer initialFy="FY 2026-27" close={vi.fn()} />
+        </MockSessionProvider>
+      );
+
+      // Step 1 -> Step 2
+      fireEvent.click(screen.getByRole('button', { name: /continue to preview/i }));
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/sample-only preview/i).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText(/sample-only preview notice/i)).toBeInTheDocument();
+      });
+
+      // Step 2 -> Step 3
+      fireEvent.click(screen.getByRole('button', { name: /review columns & totals/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/sample preview totals \(sample-only preview/i)).toBeInTheDocument();
+      });
+
+      // Step 3 -> Step 4
+      fireEvent.click(screen.getByRole('button', { name: /proceed to confirmation/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/sample vs authoritative:/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('ReportsHub LIVE Integration', () => {
+    it('loads and renders complete authoritative dataset with >100 invoices and server-driven pagination', async () => {
+      // Generate 105 mock invoices
+      const bulkInvoices = Array.from({ length: 105 }, (_, i) => ({
+        id: i + 1,
+        fy_code: "FY 2026-27",
+        order_type: "PO",
+        po_number: `PO-2026-${String(i + 1).padStart(3, '0')}`,
+        po_date: "2026-04-01",
+        invoice_number: `INV-2026-${String(i + 1).padStart(3, '0')}`,
+        invoice_date: "2026-04-10",
+        due_date: "2026-04-25",
+        customer_id: (i % 3) + 1,
+        customer_name: i % 3 === 0 ? "Nexus Enterprises" : i % 3 === 1 ? "Acme Cloud Solutions Pvt Ltd" : "Apex Global",
+        executive_id: 5,
+        executive_name: "Arjun Mehta",
+        exclusive_amount: 1000.0,
+        tax_amount: 180.0,
+        total_amount: 1180.0,
+        total_cash_paid: 0.0,
+        total_tds_deducted: 0.0,
+        total_paid: 0.0,
+        outstanding_balance: 1180.0,
+        computed_status: "OVERDUE",
+        payments: [],
+      }));
+
+      const getAllInvoicesSpy = vi.spyOn(apiClient, 'getAllInvoices').mockResolvedValue({
+        page: 1,
+        limit: 105,
+        total: 105,
+        total_pages: 1,
+        data: bulkInvoices as any,
+      });
+
+      render(
+        <MockSessionProvider>
+          <ReportsHub />
+        </MockSessionProvider>
+      );
+
+      await waitFor(() => {
+        expect(getAllInvoicesSpy).toHaveBeenCalled();
+        // Record count indicator for page 1: "1–10 of 105 records"
+        expect(screen.getByText(/1[–\-]10 of 105 records/i)).toBeInTheDocument();
+      });
+
+      // Navigate to page 2
+      const nextBtn = screen.getByRole('button', { name: /next page/i });
+      fireEvent.click(nextBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/11[–\-]20 of 105 records/i)).toBeInTheDocument();
+      });
+
+      // Verify authoritative summary cards are rendered
+      expect(screen.getByText('₹15,34,000')).toBeInTheDocument();
+      expect(screen.getAllByText('₹10,62,000').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('renders customer exposure view aligned with backend {rows, summary} contract', async () => {
+      vi.spyOn(apiClient, 'getCustomerExposure').mockResolvedValue({
+        as_of_date: "2026-04-30",
+        fy_code: "FY 2026-27",
+        total_outstanding: "1062000.00",
+        rows: [
+          {
+            customer_id: 1,
+            customer_name: "Nexus Enterprises",
+            billing_name: "Nexus Enterprises",
+            gstin: "29AAAAA0000A1Z5",
+            state: "Karnataka",
+            total_orders: 5,
+            total_billed: "1534000.00",
+            total_cash: "432000.00",
+            total_tds: "40000.00",
+            total_settled: "472000.00",
+            outstanding_balance: "1062000.00",
+            unbilled_value: "295000.00",
+            overdue_exposure: "826000.00",
+          },
+        ],
+        summary: {
+          total_billed: "1534000.00",
+          total_cash: "432000.00",
+          total_tds: "40000.00",
+          total_settled: "472000.00",
+          total_outstanding: "1062000.00",
+          total_overdue: "826000.00",
+          customer_count: 1,
+        },
+      });
+
+      render(
+        <MockSessionProvider>
+          <ReportsHub />
+        </MockSessionProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tab-customers')).toBeInTheDocument();
+      });
+
+      // Switch to Customer Exposure tab
+      fireEvent.click(screen.getByTestId('tab-customers'));
+
+      await waitFor(() => {
+        // Customer name rendered in table row
+        expect(screen.getByTestId('customer-row-1')).toHaveTextContent('Nexus Enterprises');
+        // Outstanding balance rendered: ₹10,62,000
+        expect(screen.getAllByText('₹10,62,000').length).toBeGreaterThanOrEqual(1);
+        // Gross billed rendered: ₹15,34,000
+        expect(screen.getAllByText('₹15,34,000').length).toBeGreaterThanOrEqual(1);
       });
     });
   });

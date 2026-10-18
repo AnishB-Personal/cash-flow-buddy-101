@@ -86,6 +86,7 @@ test.describe("Stage 4C.5: LIVE Sales Targets, Reporting Hub, AR Aging & Exports
     const { token } = await loginRes.json();
 
     const ticketRes = await request.post(`${BACKEND_URL}/api/export/token`, {
+      data: { format: "excel", fy: "ALL", scope: "all" },
       headers: { Authorization: `Bearer ${token}` },
     });
     expect([200, 201]).toContain(ticketRes.status());
@@ -95,12 +96,12 @@ test.describe("Stage 4C.5: LIVE Sales Targets, Reporting Hub, AR Aging & Exports
     expect(ticketData.expires_in).toBe(300);
 
     // First download consumption succeeds
-    const downloadRes1 = await request.get(`${BACKEND_URL}/api/export/excel?ticket=${exportTicket}`);
+    const downloadRes1 = await request.get(`${BACKEND_URL}/api/export/excel?ticket=${exportTicket}&fy=ALL&scope=all`);
     expect(downloadRes1.status()).toBe(200);
     expect(downloadRes1.headers()["content-type"]).toContain("spreadsheetml");
 
     // Second download consumption fails with 401/410 (atomic single-use row lock)
-    const downloadRes2 = await request.get(`${BACKEND_URL}/api/export/excel?ticket=${exportTicket}`);
+    const downloadRes2 = await request.get(`${BACKEND_URL}/api/export/excel?ticket=${exportTicket}&fy=ALL&scope=all`);
     expect([401, 410]).toContain(downloadRes2.status());
 
     // 2. Full Browser UI 5-Step Export Workflow

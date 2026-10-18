@@ -558,6 +558,33 @@ class ApiClient {
     return await this.request<{ page: number; limit: number; total: number; total_pages: number; data: InvoiceDTO[] }>(`/api/invoices${query}`);
   }
 
+  public async getAllInvoices(params?: {
+    search?: string | undefined;
+    fy?: string | undefined;
+    status?: string | undefined;
+    customer_id?: number | undefined;
+  }): Promise<{ page: number; limit: number; total: number; total_pages: number; data: InvoiceDTO[] }> {
+    const firstPage = await this.getInvoices({ ...params, page: 1, limit: 500 });
+    let allData = [...firstPage.data];
+    if (firstPage.total_pages > 1) {
+      const remainingPages = [];
+      for (let p = 2; p <= firstPage.total_pages; p++) {
+        remainingPages.push(this.getInvoices({ ...params, page: p, limit: 500 }));
+      }
+      const pageResults = await Promise.all(remainingPages);
+      for (const res of pageResults) {
+        allData = allData.concat(res.data);
+      }
+    }
+    return {
+      page: 1,
+      limit: allData.length,
+      total: firstPage.total,
+      total_pages: 1,
+      data: allData,
+    };
+  }
+
   public async getInvoice(id: number): Promise<{ invoice: InvoiceDTO; payments: any[]; items: any[] }> {
     return await this.request<{ invoice: InvoiceDTO; payments: any[]; items: any[] }>(`/api/invoices/${id}`);
   }
@@ -707,7 +734,7 @@ class ApiClient {
     }
     const searchParams = new URLSearchParams();
     if (params?.ticket) searchParams.set("ticket", params.ticket);
-    if (params?.fy && params.fy !== "ALL" && params.fy !== "All") searchParams.set("fy", params.fy);
+    if (params?.fy) searchParams.set("fy", params.fy);
     if (params?.scope) searchParams.set("scope", params.scope);
     if (params?.as_of_date) searchParams.set("as_of_date", params.as_of_date);
     const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
@@ -1054,21 +1081,44 @@ export interface ExecutiveAttainmentReportDTO {
 
 export interface CustomerExposureItemDTO {
   customer_id: number;
-  billing_name: string;
-  total_invoiced: string;
+  customer_name?: string;
+  billing_name?: string;
+  gstin?: string;
+  state?: string;
+  total_orders?: number;
+  total_billed?: string;
+  total_invoiced?: string;
+  total_cash?: string;
+  total_tds?: string;
   total_settled: string;
   outstanding_balance: string;
-  unbilled_orders_value: string;
-  overdue_balance: string;
-  max_days_overdue: number;
-  invoices_count: number;
+  unbilled_value?: string;
+  unbilled_orders_value?: string;
+  overdue_exposure?: string;
+  overdue_balance?: string;
+  max_days_overdue?: number;
+  invoices_count?: number;
+}
+
+export interface CustomerExposureSummaryDTO {
+  as_of_date?: string;
+  fy_code?: string;
+  total_billed: string;
+  total_cash: string;
+  total_tds: string;
+  total_settled: string;
+  total_outstanding: string;
+  total_overdue: string;
+  customer_count: number;
 }
 
 export interface CustomerExposureReportDTO {
-  as_of_date: string;
-  fy_code: string;
-  total_outstanding: string;
-  customers: CustomerExposureItemDTO[];
+  as_of_date?: string;
+  fy_code?: string;
+  total_outstanding?: string;
+  rows: CustomerExposureItemDTO[];
+  summary: CustomerExposureSummaryDTO;
+  customers?: CustomerExposureItemDTO[];
 }
 
 export const apiClient = new ApiClient();

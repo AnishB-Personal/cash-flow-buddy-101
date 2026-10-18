@@ -589,8 +589,8 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                       {selectedFy} · {scopedRows.length}{" "}
                       {scopedRows.length === 1 ? "Record" : "Records"} Found
                       {isLive && (
-                        <span style={{ fontSize: 13, fontWeight: 400, color: "var(--muted-foreground)", marginLeft: 6 }}>
-                          (Preview sample)
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--warning)", marginLeft: 6 }}>
+                          (Sample-Only Preview)
                         </span>
                       )}
                     </div>
@@ -610,11 +610,12 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                       display: "flex",
                       alignItems: "center",
                       gap: 8,
+                      backgroundColor: "var(--muted)",
                     }}
                   >
                     <Info size={15} style={{ flexShrink: 0 }} />
                     <span>
-                      Authoritative Notice: Preview displays sample records for verification. The downloaded export includes the complete authoritative dataset across all records in PostgreSQL.
+                      <strong>Sample-Only Preview Notice:</strong> Counts and monetary totals displayed here are sample-only preview values based on loaded sample records and do NOT represent complete financial reconciliation. The authoritative single-use download will contain the complete PostgreSQL dataset.
                     </span>
                   </div>
                 )}
@@ -821,7 +822,33 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
             {/* STEP 3: REVIEW COLUMNS & TOTALS */}
             {step === "review" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                <FormSection title="1. Summary Financial Totals (Reconciliation)">
+                <FormSection
+                  title={
+                    isLive
+                      ? "1. Sample Preview Totals (Sample-Only Preview — Not Complete Reconciliation)"
+                      : "1. Summary Financial Totals (Reconciliation)"
+                  }
+                >
+                  {isLive && (
+                    <div
+                      style={{
+                        padding: "8px 12px",
+                        fontSize: 12,
+                        borderRadius: 6,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        backgroundColor: "var(--muted)",
+                        color: "var(--muted-foreground)",
+                        marginBottom: 10,
+                      }}
+                    >
+                      <Info size={15} style={{ flexShrink: 0 }} />
+                      <span>
+                        <strong>Sample-Only Preview Notice:</strong> In LIVE mode, these totals reflect the local sample records only. Complete financial reconciliation across all records is performed server-side and delivered in the downloaded authoritative export file.
+                      </span>
+                    </div>
+                  )}
                   <div
                     style={{
                       display: "grid",
@@ -1010,6 +1037,14 @@ export function ExportDrawer({ initialFy, container, close, onExportComplete }: 
                         <span>
                           <strong>Demo CSV Labeling:</strong> Explicitly marked as client-side
                           &ldquo;{DEMO_CSV_LABEL}&rdquo;.
+                        </span>
+                      </div>
+                    )}
+                    {isLive && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <CheckCircle2 size={16} color="var(--primary)" />
+                        <span>
+                          <strong>Sample vs Authoritative:</strong> Preview counts and totals were sample-only; full database reconciliation will be computed and packaged in the issued single-use download.
                         </span>
                       </div>
                     )}
