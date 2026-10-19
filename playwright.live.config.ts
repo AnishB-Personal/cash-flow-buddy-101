@@ -8,7 +8,7 @@ const ldLibraryPath = extraLibPath
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: ['**/*live*.spec.ts'],
+  testMatch: ['**/*live*.spec.ts', '**/stage4b-*.spec.ts', '**/stage4c*.spec.ts'],
   timeout: 30000,
   expect: {
     timeout: 5000,
