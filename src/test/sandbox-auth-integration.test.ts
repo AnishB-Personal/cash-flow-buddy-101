@@ -163,19 +163,26 @@ describe("Stage 4B Sandbox Live Integration Tests", () => {
     }
   });
 
-  it("aborts when live mode configured without VITE_API_BASE_URL", () => {
-    // When VITE_API_BASE_URL is empty in live mode, initFromEnv throws
+  it("supports same-origin live mode when VITE_API_BASE_URL is empty or omitted", () => {
+    // In WP-02, an empty or omitted VITE_API_BASE_URL in live mode targets same-origin without error or fallback to mock
     const originalUrl = import.meta.env["VITE_API_BASE_URL"];
+    const originalMode = import.meta.env["VITE_API_MODE"];
     try {
       delete (import.meta.env as any)["VITE_API_BASE_URL"];
       (import.meta.env as any)["VITE_API_MODE"] = "live";
 
-      expect(() => apiClient.initFromEnv()).toThrow(
-        /CONFIGURATION ERROR: VITE_API_MODE is set to 'live'/
-      );
+      apiClient.initFromEnv();
+      expect(apiClient.getMode()).toBe("live");
+      expect(apiClient.getBaseUrl()).toBe("");
+
+      // Explicit empty string
+      (import.meta.env as any)["VITE_API_BASE_URL"] = "";
+      apiClient.initFromEnv();
+      expect(apiClient.getMode()).toBe("live");
+      expect(apiClient.getBaseUrl()).toBe("");
     } finally {
       (import.meta.env as any)["VITE_API_BASE_URL"] = originalUrl;
-      (import.meta.env as any)["VITE_API_MODE"] = "mock";
+      (import.meta.env as any)["VITE_API_MODE"] = originalMode || "mock";
       apiClient.initFromEnv();
     }
   });

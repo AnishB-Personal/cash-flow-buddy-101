@@ -81,13 +81,8 @@ class ApiClient {
 
     if (this.mode === "live") {
       const url = import.meta.env["VITE_API_BASE_URL"];
-      if (!url) {
-        throw new Error(
-          "CONFIGURATION ERROR: VITE_API_MODE is set to 'live', but VITE_API_BASE_URL is not configured. " +
-          "Live mode requires an explicit sandbox API URL."
-        );
-      }
-      this.baseUrl = url.replace(/\/+$/, "");
+      // In live mode, an empty, omitted, or "same-origin" VITE_API_BASE_URL specifies same-origin relative URLs
+      this.baseUrl = (url ?? "").trim().replace(/\/+$/, "");
     } else {
       this.baseUrl = "";
     }
@@ -164,12 +159,8 @@ class ApiClient {
       throw new Error("ApiClient.request() called while in mock mode. Use mock adapter instead.");
     }
 
-    if (!this.baseUrl) {
-      throw new Error("ApiClient: Base URL is not set in live mode.");
-    }
-
     const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-    const url = `${this.baseUrl}${cleanEndpoint}`;
+    const url = this.baseUrl ? `${this.baseUrl}${cleanEndpoint}` : cleanEndpoint;
 
     const headers: Record<string, string> = {
       "Accept": "application/json",

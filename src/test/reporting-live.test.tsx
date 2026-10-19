@@ -446,10 +446,12 @@ describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () =
         expect(apiClient.getExecutiveAttainment).toHaveBeenCalledWith({ fy: 'FY 2026-27' });
       });
 
-      // Overall Achievement: 18.6%
-      expect(screen.getAllByText('18.6%').length).toBeGreaterThanOrEqual(1);
-      // Quota: ₹70,00,000
-      expect(screen.getAllByText('₹70,00,000').length).toBeGreaterThanOrEqual(1);
+      await waitFor(() => {
+        // Overall Achievement: 18.6%
+        expect(screen.getAllByText('18.6%').length).toBeGreaterThanOrEqual(1);
+        // Quota: ₹70,00,000
+        expect(screen.getAllByText('₹70,00,000').length).toBeGreaterThanOrEqual(1);
+      });
     });
   });
 
