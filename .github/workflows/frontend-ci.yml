@@ -85,20 +85,16 @@ except Exception as e:
         run: |
           npm run build
 
-      - name: Build Frontend OCI Container Image
+      - name: Install and Verify Trivy Scanner
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          trivy --version
+
+      - name: Build and Scan Frontend OCI Container Image
         run: |
           chmod +x scripts/ci/build_and_scan_image.sh
-          ./scripts/ci/build_and_scan_image.sh frontend collectflow-frontend /tmp/frontend-image-meta.json no-publish
+          ./scripts/ci/build_and_scan_image.sh frontend collectflow-frontend /tmp/frontend-image-meta.json no-publish /tmp/frontend-trivy-report.json
 
-      - name: Scan Frontend Container Image (Trivy)
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # 0.28.0
-        with:
-          image-ref: "collectflow-frontend:${{ github.sha }}"
-          format: "json"
-          output: "/tmp/frontend-trivy-report.json"
-          exit-code: "1"
-          vuln-type: "os,library"
-          severity: "HIGH,CRITICAL"
 
       - name: Generate CycloneDX SBOM
         run: |
