@@ -1,4 +1,4 @@
-import { apiClient, ApiError } from "@/lib/api-client";
+import { apiClient, ApiError, type LogoutResult } from "@/lib/api-client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -125,10 +125,27 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   const currentUser = apiClient.getCurrentUser();
   const activeRole = (isLive && currentUser?.role) ? currentUser.role : role;
 
+  const [logoutWarning, setLogoutWarning] = useState<LogoutResult | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   async function handleLogout() {
-    await apiClient.logout();
-    setMustRotatePassword(false);
-    void routerNavigate({ to: "/login" });
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      const result = await apiClient.logout();
+      if (result.serverRevoked) {
+        setLogoutWarning(null);
+        setMustRotatePassword(false);
+        void routerNavigate({ to: "/login" });
+      } else {
+        setMustRotatePassword(false);
+        setLiveAuthState("unauthenticated");
+        setLogoutWarning(result);
+      }
+      return result;
+    } finally {
+      setIsLoggingOut(false);
+    }
   }
 
   const [menu, setMenu] = useState(false);
@@ -349,6 +366,44 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
       .includes(global.toLowerCase()),
   );
 
+  if (logoutWarning) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-4" role="alert" aria-label="Logout Warning">
+        <div className="max-w-md w-full bg-slate-800 border border-amber-500/40 rounded-xl p-6 text-center space-y-4 shadow-xl">
+          <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-400 mx-auto flex items-center justify-center font-bold text-xl">
+            !
+          </div>
+          <h2 className="text-lg font-semibold text-slate-100">Server Logout Incomplete</h2>
+          <p className="text-sm text-amber-300 font-medium" data-testid="logout-warning-message">
+            {logoutWarning.message}
+          </p>
+          <p className="text-xs text-slate-400">
+            Your local session state has been cleared, but server-side session revocation could not be confirmed. For your security, you may retry revocation or proceed to login.
+          </p>
+          <div className="flex gap-3 justify-center pt-2">
+            <button
+              onClick={() => void handleLogout()}
+              disabled={isLoggingOut}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              {isLoggingOut ? "Retrying..." : "Retry Logout"}
+            </button>
+            <button
+              onClick={() => {
+                setLogoutWarning(null);
+                setMustRotatePassword(false);
+                void routerNavigate({ to: "/login" });
+              }}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+            >
+              Proceed to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isLive && liveAuthState === "unauthenticated") {
     return null;
   }
@@ -517,8 +572,14 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
               </div>
               {isLive && (
                 <div style={{ marginTop: "8px" }}>
-                  <Button variant="outline" size="sm" style={{ width: "100%" }} onClick={handleLogout}>
-                    Sign out
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    style={{ width: "100%" }}
+                    onClick={handleLogout}
+                    disabled={isLoggingOut}
+                  >
+                    {isLoggingOut ? "Signing out..." : "Sign out"}
                   </Button>
                 </div>
               )}

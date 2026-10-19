@@ -375,15 +375,12 @@ class ApiClient {
     const res = await this.request<{ authenticated: boolean; csrf_token?: string; user: UserProfile }>("/api/auth/me", {
       method: "GET",
     });
-    if (res.csrf_token) {
-      this.csrfToken = res.csrf_token;
-    }
     if (this.sessionGeneration === requestGeneration && (this.inMemoryToken === requestToken || this.inMemoryToken === null)) {
+      if (res.csrf_token) {
+        this.csrfToken = res.csrf_token;
+      }
       this.inMemoryUser = res.user;
       return res.user;
-    }
-    if (this.inMemoryUser) {
-      return this.inMemoryUser;
     }
     throw new ApiError(401, "Session invalidated during user verification.");
   }
@@ -392,10 +389,13 @@ class ApiClient {
     if (this.mode !== "live") {
       return this.inMemoryUser;
     }
+    const requestGeneration = this.sessionGeneration;
     try {
       return await this.fetchCurrentUser();
     } catch {
-      this.clearSession();
+      if (this.sessionGeneration === requestGeneration) {
+        this.clearSession();
+      }
       return null;
     }
   }
@@ -405,11 +405,15 @@ class ApiClient {
       this.csrfToken = "mock-csrf-token";
       return this.csrfToken;
     }
+    const requestGeneration = this.sessionGeneration;
     const res = await this.request<{ csrf_token: string }>("/api/auth/csrf-token", {
       method: "GET",
     });
-    this.csrfToken = res.csrf_token;
-    return res.csrf_token;
+    if (this.sessionGeneration === requestGeneration) {
+      this.csrfToken = res.csrf_token;
+      return res.csrf_token;
+    }
+    throw new ApiError(401, "Session invalidated during CSRF token refresh.");
   }
 
   public async changePassword(payload: {

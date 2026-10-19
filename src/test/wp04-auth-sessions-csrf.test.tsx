@@ -1,11 +1,29 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { apiClient } from "../lib/api-client";
 import { PasswordRotationModal } from "../components/collectflow/password-rotation-modal";
+import { Workspace } from "../components/collectflow/workspace";
+import { MockSessionProvider } from "../components/collectflow/session";
+
+const mockNavigate = vi.fn();
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+    Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
+  };
+});
 
 describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockNavigate.mockClear();
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
     apiClient.configure({ mode: "live", baseUrl: "" });
     apiClient.clearSession();
   });
@@ -364,6 +382,324 @@ describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /Sign Out/i }));
       expect(onLogout).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("Stale Session State Restoration Prevention (WP04-R02)", () => {
+    it("in-flight /me request does NOT restore user or CSRF token if logout occurs before response", async () => {
+      let resolveMe: (value: any) => void = () => {};
+      const mePromise = new Promise((resolve) => {
+        resolveMe = resolve;
+      });
+
+      apiClient.configure({ mode: "live", baseUrl: "" });
+      apiClient.setToken("session-token-1", { id: 1, username: "alice", role: "admin" });
+      apiClient.setCsrfToken("initial-csrf");
+
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/auth/me") {
+          return mePromise;
+        }
+        if (url === "/api/auth/logout") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true, message: "Logged out" }),
+          });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }));
+
+      // Start in-flight /me request
+      const fetchPromise = apiClient.fetchCurrentUser();
+
+      // Logout occurs while /me is still in-flight
+      const logoutResult = await apiClient.logout();
+      expect(logoutResult.serverRevoked).toBe(true);
+      expect(apiClient.getCurrentUser()).toBeNull();
+      expect(apiClient.getCsrfToken()).toBeNull();
+
+      // Resolve the late /me response
+      resolveMe({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          authenticated: true,
+          csrf_token: "late-stale-csrf-token",
+          user: { id: 1, username: "alice", role: "admin" },
+        }),
+      });
+
+      // Verify that fetchCurrentUser rejected and state was NOT restored
+      await expect(fetchPromise).rejects.toThrow("Session invalidated during user verification");
+      expect(apiClient.getCurrentUser()).toBeNull();
+      expect(apiClient.getCsrfToken()).toBeNull();
+    });
+
+    it("in-flight CSRF refresh does NOT restore CSRF token if logout occurs before response", async () => {
+      let resolveCsrf: (value: any) => void = () => {};
+      const csrfPromise = new Promise((resolve) => {
+        resolveCsrf = resolve;
+      });
+
+      apiClient.configure({ mode: "live", baseUrl: "" });
+      apiClient.setCsrfToken("active-csrf");
+
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/auth/csrf-token") {
+          return csrfPromise;
+        }
+        if (url === "/api/auth/logout") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true, message: "Logged out" }),
+          });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }));
+
+      // Start in-flight fetchCsrfToken
+      const csrfFetchPromise = apiClient.fetchCsrfToken();
+
+      // Logout occurs while csrf refresh is in-flight
+      await apiClient.logout();
+      expect(apiClient.getCsrfToken()).toBeNull();
+
+      // Resolve late CSRF response
+      resolveCsrf({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          csrf_token: "resurrected-csrf-token",
+        }),
+      });
+
+      await expect(csrfFetchPromise).rejects.toThrow("Session invalidated during CSRF token refresh");
+      expect(apiClient.getCsrfToken()).toBeNull();
+    });
+
+    it("late /me from an older session does NOT overwrite a newly authenticated user", async () => {
+      let resolveFirstMe: (value: any) => void = () => {};
+      const firstMePromise = new Promise((resolve) => {
+        resolveFirstMe = resolve;
+      });
+
+      apiClient.configure({ mode: "live", baseUrl: "" });
+      apiClient.setToken("session-alice", { id: 1, username: "alice", role: "admin" });
+
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/auth/me") {
+          return firstMePromise;
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }));
+
+      // Start /me for Alice
+      const alicePromise = apiClient.fetchCurrentUser();
+
+      // Switch session to Bob
+      apiClient.setToken("session-bob", { id: 2, username: "bob", role: "sales" });
+      apiClient.setCsrfToken("bob-csrf");
+
+      // Late response resolves for Alice
+      resolveFirstMe({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          authenticated: true,
+          csrf_token: "alice-csrf",
+          user: { id: 1, username: "alice", role: "admin" },
+        }),
+      });
+
+      await expect(alicePromise).rejects.toThrow("Session invalidated during user verification");
+      expect(apiClient.getCurrentUser()?.username).toBe("bob");
+      expect(apiClient.getCsrfToken()).toBe("bob-csrf");
+    });
+  });
+
+  describe("Workspace UI Logout Integration (WP04-R01)", () => {
+    function setupWorkspaceMockFetch(logoutStatusOrHandler: number | ((init?: RequestInit) => any), mustChangePassword = false) {
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url === "/api/auth/me") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              authenticated: true,
+              csrf_token: "live-csrf-token",
+              user: {
+                id: 1,
+                username: "admin_user",
+                role: "admin",
+                full_name: "Admin User",
+                must_change_password: mustChangePassword,
+              },
+            }),
+          });
+        }
+        if (url.startsWith("/api/orders")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ data: [] }),
+          });
+        }
+        if (url.startsWith("/api/invoices")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ data: [] }),
+          });
+        }
+        if (url === "/api/auth/logout") {
+          if (typeof logoutStatusOrHandler === "function") {
+            return logoutStatusOrHandler(init);
+          }
+          if (logoutStatusOrHandler === 200) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({ success: true, message: "Logged out successfully" }),
+            });
+          }
+          if (logoutStatusOrHandler === 403) {
+            return Promise.resolve({
+              ok: false,
+              status: 403,
+              json: async () => ({ detail: "CSRF token mismatch" }),
+            });
+          }
+          if (logoutStatusOrHandler === 500) {
+            return Promise.resolve({
+              ok: false,
+              status: 500,
+              json: async () => ({ detail: "Internal server error" }),
+            });
+          }
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }));
+    }
+
+    it("confirmed logout (200 OK) navigates to /login without warning screen", async () => {
+      setupWorkspaceMockFetch(200);
+
+      render(
+        <MockSessionProvider>
+          <Workspace initial="Dashboard" />
+        </MockSessionProvider>
+      );
+
+      const signOutBtn = await screen.findByRole("button", { name: "Sign out" });
+      fireEvent.click(signOutBtn);
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith({ to: "/login" });
+      });
+      expect(screen.queryByRole("alert", { name: "Logout Warning" })).not.toBeInTheDocument();
+    });
+
+    it("logout server rejection (HTTP 403) displays warning alert, clears local session, and enables manual navigation", async () => {
+      setupWorkspaceMockFetch(403);
+
+      render(
+        <MockSessionProvider>
+          <Workspace initial="Dashboard" />
+        </MockSessionProvider>
+      );
+
+      const signOutBtn = await screen.findByRole("button", { name: "Sign out" });
+      fireEvent.click(signOutBtn);
+
+      const alert = await screen.findByRole("alert", { name: "Logout Warning" });
+      expect(alert).toBeInTheDocument();
+      expect(screen.getByText("Server Logout Incomplete")).toBeInTheDocument();
+      expect(screen.getByTestId("logout-warning-message")).toHaveTextContent("403 Forbidden");
+      expect(mockNavigate).not.toHaveBeenCalledWith({ to: "/login" });
+      expect(apiClient.getCurrentUser()).toBeNull();
+
+      // Proceed to login recovery action
+      const proceedBtn = screen.getByRole("button", { name: "Proceed to Login" });
+      fireEvent.click(proceedBtn);
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/login" });
+    });
+
+    it("logout server error (HTTP 500) displays warning alert with status code", async () => {
+      setupWorkspaceMockFetch(500);
+
+      render(
+        <MockSessionProvider>
+          <Workspace initial="Dashboard" />
+        </MockSessionProvider>
+      );
+
+      const signOutBtn = await screen.findByRole("button", { name: "Sign out" });
+      fireEvent.click(signOutBtn);
+
+      const alert = await screen.findByRole("alert", { name: "Logout Warning" });
+      expect(alert).toBeInTheDocument();
+      expect(screen.getByTestId("logout-warning-message")).toHaveTextContent("500");
+      expect(mockNavigate).not.toHaveBeenCalledWith({ to: "/login" });
+    });
+
+    it("logout network failure displays warning alert and allows Retry Logout recovery", async () => {
+      let failNetwork = true;
+      setupWorkspaceMockFetch(() => {
+        if (failNetwork) {
+          return Promise.reject(new Error("Connection reset by peer"));
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, message: "Logged out on retry" }),
+        });
+      });
+
+      render(
+        <MockSessionProvider>
+          <Workspace initial="Dashboard" />
+        </MockSessionProvider>
+      );
+
+      const signOutBtn = await screen.findByRole("button", { name: "Sign out" });
+      fireEvent.click(signOutBtn);
+
+      const alert = await screen.findByRole("alert", { name: "Logout Warning" });
+      expect(alert).toBeInTheDocument();
+      expect(screen.getByTestId("logout-warning-message")).toHaveTextContent(/Network failure/i);
+
+      // Network recovers, click Retry Logout
+      failNetwork = false;
+      const retryBtn = screen.getByRole("button", { name: "Retry Logout" });
+      fireEvent.click(retryBtn);
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith({ to: "/login" });
+      });
+    });
+
+    it("logout from PasswordRotationModal handles server revocation failure gracefully", async () => {
+      setupWorkspaceMockFetch(500, true);
+
+      render(
+        <MockSessionProvider>
+          <Workspace initial="Dashboard" />
+        </MockSessionProvider>
+      );
+
+      const modalTitle = await screen.findByText(/Mandatory Password Rotation/i);
+      expect(modalTitle).toBeInTheDocument();
+
+      const dialog = screen.getByRole("dialog");
+      const modalSignOutBtn = within(dialog).getByRole("button", { name: /Sign Out/i });
+      fireEvent.click(modalSignOutBtn);
+
+      const alert = await screen.findByRole("alert", { name: "Logout Warning" });
+      expect(alert).toBeInTheDocument();
+      expect(screen.queryByText(/Mandatory Password Rotation/i)).not.toBeInTheDocument();
+      expect(mockNavigate).not.toHaveBeenCalledWith({ to: "/login" });
     });
   });
 });
