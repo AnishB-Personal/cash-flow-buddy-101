@@ -5,7 +5,13 @@ dist
 .git
 .github
 .env*
+secrets*
+*.pem
+*.key
+*.db
+*.sqlite*
 coverage
 playwright-report
 test-results
 *.log
+.DS_Store

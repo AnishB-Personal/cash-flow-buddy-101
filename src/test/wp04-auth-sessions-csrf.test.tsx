@@ -61,8 +61,6 @@ describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
         billing_name: "Test Corp",
         state: "Maharashtra",
         billing_address: "123 Street",
-        credit_limit: 100000,
-        payment_terms_days: 30,
       });
 
       expect(capturedHeaders?.["X-CSRF-Token"]).toBe("csrf-token-abc123xyz");
@@ -101,8 +99,6 @@ describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
         billing_name: "Retry Corp",
         state: "Karnataka",
         billing_address: "456 Avenue",
-        credit_limit: 500000,
-        payment_terms_days: 15,
       });
 
       expect(res.success).toBe(true);

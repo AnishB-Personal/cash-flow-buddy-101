@@ -1,9 +1,12 @@
 import { defineConfig } from '@playwright/test';
 
-// Ensure LD_LIBRARY_PATH includes local libraries for headless chromium
-if (!process.env.LD_LIBRARY_PATH?.includes('/home/anishb/.local/lib')) {
-  process.env.LD_LIBRARY_PATH = `/home/anishb/.local/lib:${process.env.LD_LIBRARY_PATH || ''}`;
-}
+// Portable library path extension for headless browsers (configured via env if needed)
+const extraLibPath = process.env.PLAYWRIGHT_LD_LIBRARY_PATH;
+const ldLibraryPath = extraLibPath
+  ? `${extraLibPath}:${process.env.LD_LIBRARY_PATH || ''}`
+  : process.env.LD_LIBRARY_PATH;
+
+const isLive = process.env.VITE_API_MODE === 'live' || process.env.LIVE_MODE === '1';
 
 export default defineConfig({
   testDir: './e2e',
@@ -22,22 +25,22 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: (process.env.VITE_API_MODE === 'live' || process.env.LIVE_MODE === '1')
+    command: isLive
       ? 'VITE_API_MODE=live VITE_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --port 3000'
-      : 'npm run dev -- --port 3000',
+      : 'VITE_API_MODE=mock npm run dev -- --port 3000',
     url: 'http://127.0.0.1:3000',
     reuseExistingServer: false,
     timeout: 60000,
   },
   projects: [
     {
-      name: 'chromium',
+      name: isLive ? 'chromium-live' : 'chromium-mock',
       use: {
         browserName: 'chromium',
         launchOptions: {
           env: {
             ...process.env,
-            LD_LIBRARY_PATH: `/home/anishb/.local/lib:${process.env.LD_LIBRARY_PATH || ''}`,
+            ...(ldLibraryPath ? { LD_LIBRARY_PATH: ldLibraryPath } : {}),
           },
         },
       },

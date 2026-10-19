@@ -595,7 +595,7 @@ describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () =
       await waitFor(() => {
         expect(getAllInvoicesSpy).toHaveBeenCalled();
         // Record count indicator for page 1: "1–10 of 105 records"
-        expect(screen.getByText(/1[–\-]10 of 105 records/i)).toBeInTheDocument();
+        expect(screen.getByText(/1[–-]10 of 105 records/i)).toBeInTheDocument();
       });
 
       // Navigate to page 2
@@ -603,7 +603,7 @@ describe('Stage 4C.5: LIVE Reporting, Targets & Exports Integration Tests', () =
       fireEvent.click(nextBtn);
 
       await waitFor(() => {
-        expect(screen.getByText(/11[–\-]20 of 105 records/i)).toBeInTheDocument();
+        expect(screen.getByText(/11[–-]20 of 105 records/i)).toBeInTheDocument();
       });
 
       // Verify authoritative summary cards are rendered

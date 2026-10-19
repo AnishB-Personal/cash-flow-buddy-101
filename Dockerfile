@@ -1,15 +1,14 @@
 # Multi-stage Dockerfile for CollectFlow Frontend (TanStack Start on Node.js 22 SSR)
-
-# Stage 1: Build stage
-FROM node:22-alpine AS builder
+ARG NODE_VERSION=22-alpine3.20
+FROM node:${NODE_VERSION} AS builder
 
 WORKDIR /app
 
-# Copy dependency manifests
-COPY package.json package-lock.json* ./
+# Copy dependency manifests strictly (lockfile required for deterministic builds)
+COPY package.json package-lock.json ./
 
-# Install all dependencies required for the build
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# Strict deterministic dependency installation (fails if lockfile is missing or out of sync)
+RUN npm ci
 
 # Copy source tree
 COPY . .
@@ -23,9 +22,16 @@ ENV VITE_API_BASE_URL=""
 RUN npm run build
 
 # Stage 2: Minimal production runtime stage
-FROM node:22-alpine AS runner
+FROM node:${NODE_VERSION} AS runner
 
 WORKDIR /app
+
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="collectflow-frontend" \
+      org.opencontainers.image.description="CollectFlow SSR Frontend" \
+      org.opencontainers.image.source="https://github.com/AnishB-Personal/cash-flow-buddy-101" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.vendor="CollectFlow"
 
 ENV NODE_ENV=production
 ENV PORT=3000

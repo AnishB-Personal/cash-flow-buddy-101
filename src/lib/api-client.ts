@@ -27,7 +27,7 @@ export interface UserProfile {
 
 export interface AuthSession {
   token?: string;
-  csrf_token?: string;
+  csrf_token?: string | undefined;
   user: UserProfile;
 }
 

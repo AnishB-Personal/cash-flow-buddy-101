@@ -1,5 +1,6 @@
 {
   "name": "tanstack_start_ts",
+  "version": "1.0.0",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -11,7 +12,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "test:e2e:mock": "playwright test --config=playwright.mock.config.ts",
+    "test:e2e:live": "playwright test --config=playwright.live.config.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"

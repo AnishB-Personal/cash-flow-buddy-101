@@ -1,0 +1,97 @@
+name: CollectFlow Frontend CI
+
+on:
+  push:
+    branches:
+      - feature/release-wp05-portable-cicd
+      - "feature/**"
+  pull_request:
+    branches:
+      - feature/release-wp05-portable-cicd
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-verification:
+    name: Frontend CI & Security Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Deterministic Dependency Installation (npm ci)
+        run: |
+          npm ci
+
+      - name: TypeScript Static Checking
+        run: |
+          npm run typecheck
+
+      - name: ESLint Validation
+        run: |
+          npm run lint
+
+      - name: Dependency Vulnerability Audit (npm audit)
+        run: |
+          npm audit --audit-level=high
+
+      - name: Secret Scanning Gate
+        run: |
+          python3 scripts/ci/scan_secrets.py --root .
+
+      - name: Full Vitest Regression Suite
+        run: |
+          npm test -- --run
+
+      - name: Production SSR Build (Vite & Nitro)
+        run: |
+          npm run build
+
+      - name: Build Frontend OCI Container Image
+        run: |
+          chmod +x scripts/ci/build_and_scan_image.sh
+          ./scripts/ci/build_and_scan_image.sh frontend collectflow-frontend /tmp/frontend-image-meta.json no-publish
+
+      - name: Scan Frontend Container Image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "collectflow-frontend:${{ github.sha }}"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL"
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          python3 scripts/ci/generate_sbom.py --repo-type frontend --root . --output /tmp/collectflow-frontend-sbom.json
+
+      - name: Verify Cross-Repository Pairing Traceability
+        run: |
+          python3 scripts/ci/verify_cross_repo_release.py --initiator frontend --backend-path ../collectflow --frontend-path . || true
+
+      - name: Upload Build & Verification Evidence Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-release-evidence
+          path: |
+            /tmp/frontend-image-meta.json
+            /tmp/collectflow-frontend-sbom.json
+            /tmp/collectflow-frontend-sbom.json.sha256
+            /tmp/cross-repo-integration-report.json
+          retention-days: 7
