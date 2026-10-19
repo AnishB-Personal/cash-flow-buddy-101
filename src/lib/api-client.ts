@@ -31,6 +31,14 @@ export interface AuthSession {
   user: UserProfile;
 }
 
+export interface LogoutResult {
+  success: boolean;
+  serverRevoked: boolean;
+  status?: number;
+  message: string;
+  error?: string;
+}
+
 export interface ApiErrorDetail {
   loc?: (string | number)[];
   msg: string;
@@ -420,7 +428,7 @@ class ApiClient {
     return res;
   }
 
-  public async logout(): Promise<void> {
+  public async logout(): Promise<LogoutResult> {
     const wasLive = this.mode === "live";
     const tokenToRevoke = this.inMemoryToken;
     const csrfToRevoke = this.getCsrfToken();
@@ -432,26 +440,70 @@ class ApiClient {
     this.sessionGeneration++;
     this.loginSequence++;
 
-    if (wasLive) {
-      try {
-        const url = this.baseUrl ? `${this.baseUrl}/api/auth/logout` : "/api/auth/logout";
-        const headers: Record<string, string> = {
-          "Accept": "application/json",
-        };
-        if (tokenToRevoke) {
-          headers["Authorization"] = `Bearer ${tokenToRevoke}`;
-        }
-        if (csrfToRevoke) {
-          headers["X-CSRF-Token"] = csrfToRevoke;
-        }
-        await fetch(url, {
-          method: "POST",
-          headers,
-          credentials: "same-origin",
-        });
-      } catch {
-        // Silently handle remote network errors on logout
+    if (!wasLive) {
+      return {
+        success: true,
+        serverRevoked: true,
+        message: "Logged out successfully (mock mode).",
+      };
+    }
+
+    try {
+      const url = this.baseUrl ? `${this.baseUrl}/api/auth/logout` : "/api/auth/logout";
+      const headers: Record<string, string> = {
+        "Accept": "application/json",
+      };
+      if (tokenToRevoke) {
+        headers["Authorization"] = `Bearer ${tokenToRevoke}`;
       }
+      if (csrfToRevoke) {
+        headers["X-CSRF-Token"] = csrfToRevoke;
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        credentials: "same-origin",
+      });
+
+      if (response.status === 200) {
+        return {
+          success: true,
+          serverRevoked: true,
+          status: 200,
+          message: "Logged out successfully. Server session revoked.",
+        };
+      } else if (response.status === 401) {
+        return {
+          success: true,
+          serverRevoked: true,
+          status: 401,
+          message: "Logged out. Server session was already expired or invalid.",
+        };
+      } else if (response.status === 403) {
+        return {
+          success: false,
+          serverRevoked: false,
+          status: 403,
+          message: "Logout warning: Server rejected revocation request (403 Forbidden).",
+          error: "Server rejected revocation",
+        };
+      } else {
+        return {
+          success: false,
+          serverRevoked: false,
+          status: response.status,
+          message: `Logout warning: Server returned error (${response.status}) during session revocation.`,
+          error: `Server error ${response.status}`,
+        };
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        serverRevoked: false,
+        message: "Logout warning: Network failure prevented server-side session revocation.",
+        error: errMsg,
+      };
     }
   }
 
@@ -875,7 +927,7 @@ class ApiClient {
     if (this.inMemoryToken) {
       headers["Authorization"] = `Bearer ${this.inMemoryToken}`;
     }
-    const response = await fetch(url, { method: "GET", headers });
+    const response = await fetch(url, { method: "GET", headers, credentials: "same-origin" });
     if (!response.ok) {
       let errorMsg = `Export download failed (${response.status})`;
       try {

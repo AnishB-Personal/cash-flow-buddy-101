@@ -158,6 +158,94 @@ describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
       expect(apiClient.getCsrfToken()).toBeNull();
     });
 
+    it("logout returns LogoutResult on 200 success", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, message: "Logged out successfully" }),
+      }));
+
+      const res = await apiClient.logout();
+      expect(res.success).toBe(true);
+      expect(res.serverRevoked).toBe(true);
+      expect(res.status).toBe(200);
+      expect(res.message).toContain("Logged out successfully");
+    });
+
+    it("logout returns LogoutResult on 401 already expired session", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ detail: "Session expired or invalid" }),
+      }));
+
+      const res = await apiClient.logout();
+      expect(res.success).toBe(true);
+      expect(res.serverRevoked).toBe(true);
+      expect(res.status).toBe(401);
+      expect(res.message).toContain("already expired or invalid");
+    });
+
+    it("logout returns failure on 403 server rejection", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ detail: "CSRF token invalid" }),
+      }));
+
+      const res = await apiClient.logout();
+      expect(res.success).toBe(false);
+      expect(res.serverRevoked).toBe(false);
+      expect(res.status).toBe(403);
+      expect(res.error).toBe("Server rejected revocation");
+    });
+
+    it("logout returns failure on 500 server error", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => ({ detail: "Internal server error" }),
+      }));
+
+      const res = await apiClient.logout();
+      expect(res.success).toBe(false);
+      expect(res.serverRevoked).toBe(false);
+      expect(res.status).toBe(500);
+      expect(res.error).toContain("Server error 500");
+    });
+
+    it("logout handles network failure gracefully and wipes local session", async () => {
+      apiClient.setToken("some-token", { id: 1, username: "admin", role: "admin" });
+      apiClient.setCsrfToken("some-csrf");
+
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network connection lost")));
+
+      const res = await apiClient.logout();
+      expect(res.success).toBe(false);
+      expect(res.serverRevoked).toBe(false);
+      expect(res.error).toBe("Network connection lost");
+      expect(apiClient.getToken()).toBeNull();
+      expect(apiClient.getCurrentUser()).toBeNull();
+      expect(apiClient.getCsrfToken()).toBeNull();
+    });
+
+    it("downloadExport includes credentials: same-origin in fetch options", async () => {
+      let capturedInit: RequestInit | undefined;
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        capturedInit = init;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ "Content-Disposition": 'attachment; filename="test_export.xlsx"' }),
+          blob: async () => new Blob(["test-data"]),
+        });
+      }));
+
+      await apiClient.downloadExport("excel", { ticket: "valid-ticket-123", fy: "ALL", scope: "all" });
+      expect(capturedInit?.credentials).toBe("same-origin");
+      expect(capturedInit?.method).toBe("GET");
+    });
+
     it("changePassword sends POST /api/auth/change-password and clears previous session", async () => {
       apiClient.setCsrfToken("csrf-for-rotation");
       let calledBody: any;
