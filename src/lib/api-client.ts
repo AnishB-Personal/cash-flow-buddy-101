@@ -21,10 +21,13 @@ export interface UserProfile {
   username: string;
   role: "admin" | "finance" | "sales" | "viewer";
   full_name?: string | null;
+  is_active?: boolean;
+  must_change_password?: boolean;
 }
 
 export interface AuthSession {
-  token: string;
+  token?: string;
+  csrf_token?: string;
   user: UserProfile;
 }
 
@@ -69,6 +72,7 @@ class ApiClient {
   // In-memory token storage (ephemeral, not persisted to web storage)
   private inMemoryToken: string | null = null;
   private inMemoryUser: UserProfile | null = null;
+  private csrfToken: string | null = null;
   private onUnauthorizedCallback: (() => void) | null = null;
 
   constructor() {
@@ -129,9 +133,28 @@ class ApiClient {
     return this.inMemoryUser;
   }
 
+  public getCsrfToken(): string | null {
+    if (this.csrfToken) {
+      return this.csrfToken;
+    }
+    if (typeof document !== "undefined" && document.cookie) {
+      const match = document.cookie.match(/(?:^|;\s*)collectflow_csrf_token=([^;]+)/);
+      if (match && match[1]) {
+        this.csrfToken = decodeURIComponent(match[1]);
+        return this.csrfToken;
+      }
+    }
+    return null;
+  }
+
+  public setCsrfToken(token: string | null): void {
+    this.csrfToken = token;
+  }
+
   public clearSession(): void {
     this.inMemoryToken = null;
     this.inMemoryUser = null;
+    this.csrfToken = null;
     this.sessionGeneration++;
     if (this.onUnauthorizedCallback) {
       this.onUnauthorizedCallback();
@@ -189,9 +212,18 @@ class ApiClient {
     const requestGeneration = this.sessionGeneration;
     const requestToken = this.inMemoryToken;
 
+    const reqMethod = (options.method || "GET").toUpperCase();
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(reqMethod)) {
+      const csrf = this.getCsrfToken();
+      if (csrf && !headers["X-CSRF-Token"]) {
+        headers["X-CSRF-Token"] = csrf;
+      }
+    }
+
     const fetchOptions: RequestInit = {
       method: options.method || "GET",
       headers,
+      credentials: "same-origin",
       signal: combinedSignal,
     };
     if (requestBody !== undefined) {
@@ -205,7 +237,7 @@ class ApiClient {
 
       // Handle HTTP 401 Unauthorized
       if (response.status === 401) {
-        if (this.sessionGeneration === requestGeneration && this.inMemoryToken === requestToken && this.inMemoryToken !== null) {
+        if (this.sessionGeneration === requestGeneration && (this.inMemoryToken === requestToken || this.inMemoryToken === null)) {
           this.clearSession();
         }
         let errorMsg = "Unauthorized: Session has expired or credentials are invalid.";
@@ -223,14 +255,32 @@ class ApiClient {
       // Handle HTTP 403 Forbidden (Never masquerade as 401)
       if (response.status === 403) {
         let errorMsg = "Forbidden: You do not have permission to perform this action.";
+        let isCsrfError = false;
         try {
           const errPayload = await response.json();
           if (errPayload && errPayload.detail) {
             errorMsg = typeof errPayload.detail === "string" ? errPayload.detail : JSON.stringify(errPayload.detail);
+            if (errorMsg.includes("CSRF") || errorMsg.includes("CSRF_TOKEN")) {
+              isCsrfError = true;
+            }
           }
         } catch {
           // Fallback
         }
+
+        // If CSRF error and this is not already a retry, refresh token and retry once
+        if (isCsrfError && !(options as { _isCsrfRetry?: boolean })._isCsrfRetry) {
+          try {
+            await this.fetchCsrfToken();
+            return await this.request<T>(endpoint, {
+              ...options,
+              _isCsrfRetry: true,
+            } as any);
+          } catch {
+            // Fallback to throwing original 403 error
+          }
+        }
+
         throw new ApiError(403, errorMsg);
       }
 
@@ -271,7 +321,7 @@ class ApiClient {
   public async login(credentials: { username: string; password: string }): Promise<AuthSession> {
     const loginSeq = ++this.loginSequence;
     try {
-      const res = await this.request<{ success: boolean; token: string; user: UserProfile }>(
+      const res = await this.request<{ success: boolean; token?: string; csrf_token?: string; user: UserProfile }>(
         "/api/auth/login",
         {
           method: "POST",
@@ -289,8 +339,11 @@ class ApiClient {
         );
       }
 
-      this.setToken(res.token, res.user);
-      return { token: res.token, user: res.user };
+      if (res.csrf_token) {
+        this.csrfToken = res.csrf_token;
+      }
+      this.setToken(res.token || null, res.user);
+      return { token: res.token || "", csrf_token: res.csrf_token, user: res.user };
     } catch (err: unknown) {
       if (loginSeq !== this.loginSequence) {
         if (err instanceof ApiError && err.isSuperseded) {
@@ -311,10 +364,13 @@ class ApiClient {
   public async fetchCurrentUser(): Promise<UserProfile> {
     const requestGeneration = this.sessionGeneration;
     const requestToken = this.inMemoryToken;
-    const res = await this.request<{ authenticated: boolean; user: UserProfile }>("/api/auth/me", {
+    const res = await this.request<{ authenticated: boolean; csrf_token?: string; user: UserProfile }>("/api/auth/me", {
       method: "GET",
     });
-    if (this.sessionGeneration === requestGeneration && this.inMemoryToken === requestToken && this.inMemoryToken !== null) {
+    if (res.csrf_token) {
+      this.csrfToken = res.csrf_token;
+    }
+    if (this.sessionGeneration === requestGeneration && (this.inMemoryToken === requestToken || this.inMemoryToken === null)) {
       this.inMemoryUser = res.user;
       return res.user;
     }
@@ -324,23 +380,74 @@ class ApiClient {
     throw new ApiError(401, "Session invalidated during user verification.");
   }
 
+  public async ensureAuthenticated(): Promise<UserProfile | null> {
+    if (this.mode !== "live") {
+      return this.inMemoryUser;
+    }
+    try {
+      return await this.fetchCurrentUser();
+    } catch {
+      this.clearSession();
+      return null;
+    }
+  }
+
+  public async fetchCsrfToken(): Promise<string> {
+    if (this.mode !== "live") {
+      this.csrfToken = "mock-csrf-token";
+      return this.csrfToken;
+    }
+    const res = await this.request<{ csrf_token: string }>("/api/auth/csrf-token", {
+      method: "GET",
+    });
+    this.csrfToken = res.csrf_token;
+    return res.csrf_token;
+  }
+
+  public async changePassword(payload: {
+    current_password: string;
+    new_password: string;
+    confirm_password?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    if (this.mode !== "live") {
+      return { success: true, message: "Password updated successfully." };
+    }
+    const res = await this.request<{ success: boolean; message: string }>("/api/auth/change-password", {
+      method: "POST",
+      body: payload,
+    });
+    this.clearSession();
+    return res;
+  }
+
   public async logout(): Promise<void> {
+    const wasLive = this.mode === "live";
     const tokenToRevoke = this.inMemoryToken;
+    const csrfToRevoke = this.getCsrfToken();
+
     // Invalidate local authentication immediately
     this.inMemoryToken = null;
     this.inMemoryUser = null;
+    this.csrfToken = null;
     this.sessionGeneration++;
     this.loginSequence++;
 
-    if (tokenToRevoke && this.mode === "live" && this.baseUrl) {
+    if (wasLive) {
       try {
+        const url = this.baseUrl ? `${this.baseUrl}/api/auth/logout` : "/api/auth/logout";
         const headers: Record<string, string> = {
           "Accept": "application/json",
-          "Authorization": `Bearer ${tokenToRevoke}`,
         };
-        await fetch(`${this.baseUrl}/api/auth/logout`, {
+        if (tokenToRevoke) {
+          headers["Authorization"] = `Bearer ${tokenToRevoke}`;
+        }
+        if (csrfToRevoke) {
+          headers["X-CSRF-Token"] = csrfToRevoke;
+        }
+        await fetch(url, {
           method: "POST",
           headers,
+          credentials: "same-origin",
         });
       } catch {
         // Silently handle remote network errors on logout

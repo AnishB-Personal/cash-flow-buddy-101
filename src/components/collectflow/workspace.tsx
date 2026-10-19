@@ -51,6 +51,7 @@ import { PerformanceAnalytics } from "./performance-analytics";
 import { UsersScreen } from "./users-screen";
 import { ReportsHub } from "./reports-hub";
 import { ExportDrawer } from "./export-drawer";
+import { PasswordRotationModal } from "./password-rotation-modal";
 const groups = [
   {
     name: "OVERVIEW",
@@ -124,8 +125,9 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   const currentUser = apiClient.getCurrentUser();
   const activeRole = (isLive && currentUser?.role) ? currentUser.role : role;
 
-  function handleLogout() {
-    apiClient.logout();
+  async function handleLogout() {
+    await apiClient.logout();
+    setMustRotatePassword(false);
     void routerNavigate({ to: "/login" });
   }
 
@@ -230,24 +232,25 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
     setRecord(row);
     setSearchOpen(false);
   }
+  const [mustRotatePassword, setMustRotatePassword] = useState(false);
   const [liveAuthState, setLiveAuthState] = useState<"checking" | "authenticated" | "unauthenticated" | "network_error">(
-    isLive ? (apiClient.getToken() ? "checking" : "unauthenticated") : "authenticated"
+    isLive ? "checking" : "authenticated"
   );
   const [liveAuthError, setLiveAuthError] = useState<string | null>(null);
 
   const checkLiveSession = useCallback(() => {
     if (!isLive) return;
-    if (!apiClient.getToken()) {
-      setLiveAuthState("unauthenticated");
-      void routerNavigate({ to: "/login" });
-      return;
-    }
     const currentGen = apiClient.getSessionGeneration();
     setLiveAuthState("checking");
     setLiveAuthError(null);
     apiClient.fetchCurrentUser()
-      .then(() => {
+      .then((user) => {
         if (apiClient.getSessionGeneration() === currentGen) {
+          if (user.must_change_password) {
+            setMustRotatePassword(true);
+          } else {
+            setMustRotatePassword(false);
+          }
           setLiveAuthState("authenticated");
         }
       })
@@ -269,10 +272,10 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
   }, [checkLiveSession]);
 
   useEffect(() => {
-    if (isLive && liveAuthState === "authenticated") {
+    if (isLive && liveAuthState === "authenticated" && !mustRotatePassword) {
       void fetchLiveRecords();
     }
-  }, [isLive, liveAuthState, fetchLiveRecords]);
+  }, [isLive, liveAuthState, mustRotatePassword, fetchLiveRecords]);
 
   function unavailable(action: string) {
     setNotice(
@@ -1049,6 +1052,14 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
             </Button>
           </div>
         )}
+        <PasswordRotationModal
+          isOpen={mustRotatePassword}
+          onSuccess={() => {
+            setMustRotatePassword(false);
+            void routerNavigate({ to: "/login" });
+          }}
+          onLogout={handleLogout}
+        />
       </div>
     </div>
   );

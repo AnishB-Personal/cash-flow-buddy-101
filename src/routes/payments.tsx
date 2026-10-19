@@ -4,9 +4,12 @@ import { Workspace } from '@/components/collectflow/workspace';
 
 export const Route = createFileRoute('/payments')({
   ssr: false,
-  beforeLoad: () => {
-    if (apiClient.getMode() === "live" && !apiClient.getToken()) {
-      throw redirect({ to: "/login" });
+  beforeLoad: async () => {
+    if (apiClient.getMode() === "live") {
+      const user = await apiClient.ensureAuthenticated();
+      if (!user) {
+        throw redirect({ to: "/login" });
+      }
     }
   },
   head: () => ({
