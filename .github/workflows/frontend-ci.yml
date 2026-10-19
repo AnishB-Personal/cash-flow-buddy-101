@@ -58,18 +58,23 @@ jobs:
         run: |
           npm test -- --reporter=json --outputFile=/tmp/frontend-vitest-report.json
           python3 -c "
-import json
+import json, sys
 try:
     with open('/tmp/frontend-vitest-report.json') as f:
         data = json.load(f)
-    num_passed = data.get('numPassedTests', 0)
-    num_failed = data.get('numFailedTests', 0)
-    num_total = data.get('numTotalTests', 0)
+    if 'numPassedTests' not in data or 'numFailedTests' not in data:
+        raise ValueError('Missing numPassedTests or numFailedTests in Vitest JSON report')
+    num_passed = data['numPassedTests']
+    num_failed = data['numFailedTests']
+    num_total = data.get('numTotalTests', num_passed + num_failed)
+    if num_passed <= 0:
+        raise ValueError(f'Zero tests passed in Vitest suite (passed={num_passed}, total={num_total})')
+    verdict = 'PASS' if num_failed == 0 else 'FAIL'
     with open('/tmp/frontend-test-summary.json', 'w') as out:
-        json.dump({'passed': num_passed, 'failed': num_failed, 'total': num_total, 'verdict': 'PASS' if num_failed == 0 else 'FAIL'}, out)
+        json.dump({'passed': num_passed, 'failed': num_failed, 'total': num_total, 'verdict': verdict}, out, indent=2)
 except Exception as e:
-    with open('/tmp/frontend-test-summary.json', 'w') as out:
-        json.dump({'passed': 620, 'failed': 0, 'verdict': 'PASS'}, out)
+    print(f'ERROR: Failed to parse frontend Vitest report: {e}', file=sys.stderr)
+    sys.exit(1)
 "
 
       - name: Portable Mock Browser Acceptance (Playwright Mock)
@@ -92,7 +97,6 @@ except Exception as e:
           format: "json"
           output: "/tmp/frontend-trivy-report.json"
           exit-code: "1"
-          ignore-unfixed: true
           vuln-type: "os,library"
           severity: "HIGH,CRITICAL"
 
