@@ -81,7 +81,7 @@ class ApiClient {
 
     if (this.mode === "live") {
       const url = import.meta.env["VITE_API_BASE_URL"];
-      // In live mode, an empty, omitted, or "same-origin" VITE_API_BASE_URL specifies same-origin relative URLs
+      // In live mode, an empty or omitted VITE_API_BASE_URL specifies same-origin relative URLs (/api/...)
       this.baseUrl = (url ?? "").trim().replace(/\/+$/, "");
     } else {
       this.baseUrl = "";
