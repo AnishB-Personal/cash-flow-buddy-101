@@ -56,7 +56,7 @@ function Workflow({operation,container,close,onSuccess,liveCustomers}: {operatio
            action: operation.action,
            target: '',
            input: dataObj,
-           message: `Create financial year ${dataObj['code'] || ''}`,
+           message: `Create financial year ${dataObj['code'] || ''} (Subject to Corporate Finance Governance BPD-01)`,
            supported: true,
            context: 'live',
            before: references,
@@ -71,7 +71,7 @@ function Workflow({operation,container,close,onSuccess,liveCustomers}: {operatio
            action: operation.action,
            target: operation.target,
            input: {},
-           message: `Delete financial year ${operation.target}`,
+           message: `Delete financial year ${operation.target} (Subject to Corporate Finance Governance BPD-01)`,
            supported: true,
            context: 'live',
            before: references,
@@ -86,7 +86,7 @@ function Workflow({operation,container,close,onSuccess,liveCustomers}: {operatio
            action: operation.action,
            target: '',
            input: dataObj,
-           message: `Create GST rate ${dataObj['name'] || ''}`,
+           message: `Create GST rate ${dataObj['name'] || ''} (Subject to Corporate Finance Governance BPD-01/02)`,
            supported: true,
            context: 'live',
            before: references,
@@ -101,7 +101,7 @@ function Workflow({operation,container,close,onSuccess,liveCustomers}: {operatio
            action: operation.action,
            target: '',
            input: dataObj,
-           message: `Create TDS section ${dataObj['section_code'] || ''}`,
+           message: `Create TDS section ${dataObj['section_code'] || ''} (Subject to Corporate Finance Governance BPD-01/02)`,
            supported: true,
            context: 'live',
            before: references,
@@ -338,6 +338,6 @@ export function FinancialReferences({container,empty=false}: {container?:HTMLEle
        : liveTds.map(row=>({id:row.id,name:row.section_code,description:row.description||'',rate:row.rate,is_active:row.is_active?1:0,default:false}))
      ).filter(row=>`${row.name} ${row.description}`.toLowerCase().includes(query.toLowerCase())&&(status==='All rates'||(status==='Active'?row.is_active===1:row.is_active===0)))
    : (tab==='GST'?references.gst.map(row=>({id:row.id,name:row.name,description:row.tax_type,rate:row.rate,is_active:row.is_active,default:row.is_default===1})):references.tds.map(row=>({id:row.id,name:row.section_code,description:row.description,rate:row.rate,is_active:row.is_active,default:false}))).filter(row=>`${row.name} ${row.description}`.toLowerCase().includes(query.toLowerCase())&&(status==='All rates'||(status==='Active'?row.is_active===1:row.is_active===0))));
- return <section className="cf-reference-section"><div className="cf-segments cf-reference-tabs" role="group" aria-label="Financial reference tabs">{['Financial years','GST','TDS'].map(value=><Button key={value} variant="ghost" aria-pressed={tab===value} onClick={()=>{setTab(value);setQuery('');}}>{value}</Button>)}</div><header className="cf-section-header"><h2>{tab}</h2>{writable&&<div className="cf-reference-actions">{tab==='Financial years'&&(!isLive ? <Button variant="outline" onClick={()=>act('fy-seed','','Seed standard years')}><RotateCcw size={16}/>Seed years</Button> : <Button variant="outline" disabled title="Financial year seeding is not supported in live mode"><RotateCcw size={16}/>Seed years</Button>)}<Button onClick={()=>act(tab==='Financial years'?'fy-create':tab==='GST'?'gst-create':'tds-create','',tab==='Financial years'?'Add financial year':`Add ${tab} rate`,tab==='Financial years'?fyExample:tab==='GST'?gstExample:tdsExample)}><Plus size={16}/>Add {tab==='Financial years'?'year':'rate'}</Button></div>}</header>{liveError&&<div className="cf-field-error" role="alert">{liveError}</div>}{liveLoading&&<p className="cf-muted" role="status">Loading live statutory references…</p>}<div className="cf-reference-tools"><div className="cf-table-search"><Search size={17}/><Input aria-label="Search references" maxLength={200} value={query} onChange={e=>setQuery(e.target.value)} placeholder={`Search ${tab.toLowerCase()}`}/></div>{tab!=='Financial years'&&<FilterChoice label="Rate status" value={status} options={['All rates','Active','Inactive']} onChange={setStatus}/>}</div><p className="cf-muted">{tab==='Financial years'?'Financial-year editing is unavailable in the source API. Deletion requires no linked documents.':isLive?'Rates can be added in live mode. Rate deactivation and modification are scheduled for later stages.':'Rates can be added or deactivated, not edited or reactivated. Inactive entries are retained in this demo only; the source list returns active rates.'}</p>
+ return <section className="cf-reference-section">{isLive&&<div className="cf-stage-notice" role="status"><p><strong>Corporate Finance Governance:</strong> Statutory reference masters (Financial Years, GST Rates, TDS Sections) are governed by BPD-01 and BPD-02 and await corporate Finance approval. Direct live mutations are restricted.</p></div>}<div className="cf-segments cf-reference-tabs" role="group" aria-label="Financial reference tabs">{['Financial years','GST','TDS'].map(value=><Button key={value} variant="ghost" aria-pressed={tab===value} onClick={()=>{setTab(value);setQuery('');}}>{value}</Button>)}</div><header className="cf-section-header"><h2>{tab}</h2>{writable&&<div className="cf-reference-actions">{tab==='Financial years'&&(!isLive ? <Button variant="outline" onClick={()=>act('fy-seed','','Seed standard years')}><RotateCcw size={16}/>Seed years</Button> : <Button variant="outline" disabled title="Financial year seeding is not supported in live mode"><RotateCcw size={16}/>Seed years</Button>)}<Button onClick={()=>act(tab==='Financial years'?'fy-create':tab==='GST'?'gst-create':'tds-create','',tab==='Financial years'?'Add financial year':`Add ${tab} rate`,tab==='Financial years'?fyExample:tab==='GST'?gstExample:tdsExample)}><Plus size={16}/>Add {tab==='Financial years'?'year':'rate'}</Button></div>}</header>{liveError&&<div className="cf-field-error" role="alert">{liveError}</div>}{liveLoading&&<p className="cf-muted" role="status">Loading live statutory references…</p>}<div className="cf-reference-tools"><div className="cf-table-search"><Search size={17}/><Input aria-label="Search references" maxLength={200} value={query} onChange={e=>setQuery(e.target.value)} placeholder={`Search ${tab.toLowerCase()}`}/></div>{tab!=='Financial years'&&<FilterChoice label="Rate status" value={status} options={['All rates','Active','Inactive']} onChange={setStatus}/>}</div><p className="cf-muted">{tab==='Financial years'?'Financial-year editing is unavailable in the source API. Deletion requires no linked documents.':isLive?'Statutory rates and configurations are governed by Corporate Finance (BPD-01/02). Direct production mutations are restricted.':'Rates can be added or deactivated, not edited or reactivated. Inactive entries are retained in this demo only; the source list returns active rates.'}</p>
  {tab==='Financial years'?(!years.length?<EmptyState/>:<div className="cf-reference-list">{years.map(year=><div className="cf-reference-row" key={year.code}><div><strong>{year.code}</strong><small>{dateLabel(year.start_date)} – {dateLabel(year.end_date)}</small></div><span className="cf-status">{year.is_active?'Active':'Inactive'}</span>{writable&&<Button variant="ghost" size="icon" title="Delete unused financial year" aria-label={`Delete ${year.code}`} onClick={()=>act('fy-delete',year.code,'Delete financial year')}><Trash2 size={16}/></Button>}</div>)}</div>):(!rates.length?<EmptyState/>:<div className="cf-reference-list">{rates.map(rate=><div className="cf-reference-row" key={rate.id}><div><strong>{rate.name}</strong><small>{rate.description}{rate.default?' · Default':''}</small></div><strong className="cf-number">{Number((rate.rate*100).toFixed(3))}%</strong><span className={`cf-status ${rate.is_active?'paid':''}`}>{rate.is_active?'Active':'Inactive'}</span>{writable&&(!isLive ? <Button variant="ghost" size="icon" disabled={!rate.is_active} title="Deactivate rate" aria-label={`Deactivate ${rate.name}`} onClick={()=>act(tab==='GST'?'gst-deactivate':'tds-deactivate',String(rate.id),`Deactivate ${tab} rate`)}><Trash2 size={16}/></Button> : <Button variant="ghost" size="icon" disabled title="Rate deactivation is not supported in live mode" aria-label={`Deactivate ${rate.name}`}><Trash2 size={16}/></Button>)}</div>)}</div>)}{operation&&<Workflow operation={operation} container={container} close={()=>setOperation(null)} onSuccess={fetchLiveReferences}/>}</section>;
 }

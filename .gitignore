@@ -35,3 +35,4 @@ dist-ssr
 test-results/
 playwright-report/
 .agents/
+artifacts/
