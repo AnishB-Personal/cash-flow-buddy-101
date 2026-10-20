@@ -36,3 +36,9 @@ test-results/
 playwright-report/
 .agents/
 artifacts/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
