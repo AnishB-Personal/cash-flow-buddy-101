@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for CollectFlow Frontend (TanStack Start on Node.js 22 SSR)
-ARG NODE_VERSION=22-alpine3.20
+ARG NODE_VERSION=22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
 FROM node:${NODE_VERSION} AS builder
 
 WORKDIR /app
@@ -37,9 +37,10 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
 
-# Create unprivileged system user and group
+# Create unprivileged system user and group, and prune development tools from runner stage
 RUN addgroup -g 10001 -S collectflow && \
-    adduser -u 10001 -S collectflow -G collectflow
+    adduser -u 10001 -S collectflow -G collectflow && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 # Copy production artifacts from builder
 COPY --from=builder --chown=collectflow:collectflow /app/.output .output
