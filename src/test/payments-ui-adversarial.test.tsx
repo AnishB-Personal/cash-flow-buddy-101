@@ -523,32 +523,32 @@ describe('Empirical Adversarial Challenge Suite: Payments, UI & Settlements', ()
         sessionRef.current!.demo.invoices
       );
 
-      await waitFor(async () => {
-        await sessionRef.current!.confirmPayment(review);
-      });
+      await sessionRef.current!.confirmPayment(review);
 
       // Verify mutated state
-      const settledInv = sessionRef.current!.demo.invoices.find(i => i.id === 101)!;
-      expect(settledInv.outstanding_balance).toBe(0);
-      expect(settledInv.total_cash_paid).toBe(522000);
-      expect(settledInv.total_paid).toBe(531000);
-      expect(settledInv.computed_status).toBe('PAID');
-      expect(settledInv.payments.length).toBe(2);
-
-      // Trigger reset
       await waitFor(() => {
-        sessionRef.current!.resetDemo();
+        const settledInv = sessionRef.current!.demo.invoices.find(i => i.id === 101)!;
+        expect(settledInv.outstanding_balance).toBe(0);
+        expect(settledInv.total_cash_paid).toBe(522000);
+        expect(settledInv.total_paid).toBe(531000);
+        expect(settledInv.computed_status).toBe('PAID');
+        expect(settledInv.payments.length).toBe(2);
       });
 
+      // Trigger reset
+      sessionRef.current!.resetDemo();
+
       // Verify restored exact invariants
-      const resetInv = sessionRef.current!.demo.invoices.find(i => i.id === 101)!;
-      expect(resetInv.outstanding_balance).toBe(322000);
-      expect(resetInv.total_cash_paid).toBe(200000);
-      expect(resetInv.total_tds_deducted).toBe(9000);
-      expect(resetInv.total_paid).toBe(209000);
-      expect(resetInv.computed_status).toBe('PARTIAL');
-      expect(resetInv.payments.length).toBe(1);
-      expect(resetInv.payments[0]?.remittance_number).toBe('UTR-ICICI-9876543210');
+      await waitFor(() => {
+        const resetInv = sessionRef.current!.demo.invoices.find(i => i.id === 101)!;
+        expect(resetInv.outstanding_balance).toBe(322000);
+        expect(resetInv.total_cash_paid).toBe(200000);
+        expect(resetInv.total_tds_deducted).toBe(9000);
+        expect(resetInv.total_paid).toBe(209000);
+        expect(resetInv.computed_status).toBe('PARTIAL');
+        expect(resetInv.payments.length).toBe(1);
+        expect(resetInv.payments[0]?.remittance_number).toBe('UTR-ICICI-9876543210');
+      });
 
       // Verify that after reset, the same payment review can be confirmed again without "already consumed" error
       const freshReview = reviewPayment(
@@ -573,28 +573,28 @@ describe('Empirical Adversarial Challenge Suite: Payments, UI & Settlements', ()
       render(<Harness onSessionReady={s => { sessionRef.current = s; }} />);
 
       // Delete payment 85
-      await waitFor(async () => {
-        await sessionRef.current!.deletePayment(85);
-      });
+      await sessionRef.current!.deletePayment(85);
 
-      const modifiedInv = sessionRef.current!.demo.invoices.find(i => i.id === 101)!;
-      expect(modifiedInv.payments.length).toBe(0);
-      expect(modifiedInv.total_cash_paid).toBe(0);
-      expect(modifiedInv.outstanding_balance).toBe(531000);
-      expect(modifiedInv.computed_status).toBe('PENDING');
+      await waitFor(() => {
+        const modifiedInv = sessionRef.current!.demo.invoices.find(i => i.id === 101)!;
+        expect(modifiedInv.payments.length).toBe(0);
+        expect(modifiedInv.total_cash_paid).toBe(0);
+        expect(modifiedInv.outstanding_balance).toBe(531000);
+        expect(modifiedInv.computed_status).toBe('PENDING');
+      });
 
       // Reset
-      await waitFor(() => {
-        sessionRef.current!.resetDemo();
-      });
+      sessionRef.current!.resetDemo();
 
-      const restoredInv = sessionRef.current!.demo.invoices.find(i => i.id === 101)!;
-      expect(restoredInv.payments.length).toBe(1);
-      expect(restoredInv.total_cash_paid).toBe(200000);
-      expect(restoredInv.total_tds_deducted).toBe(9000);
-      expect(restoredInv.total_paid).toBe(209000);
-      expect(restoredInv.outstanding_balance).toBe(322000);
-      expect(restoredInv.computed_status).toBe('PARTIAL');
+      await waitFor(() => {
+        const restoredInv = sessionRef.current!.demo.invoices.find(i => i.id === 101)!;
+        expect(restoredInv.payments.length).toBe(1);
+        expect(restoredInv.total_cash_paid).toBe(200000);
+        expect(restoredInv.total_tds_deducted).toBe(9000);
+        expect(restoredInv.total_paid).toBe(209000);
+        expect(restoredInv.outstanding_balance).toBe(322000);
+        expect(restoredInv.computed_status).toBe('PARTIAL');
+      });
     });
 
     it('restores unpaid order status and balance after invoice cancellation', async () => {
@@ -602,26 +602,26 @@ describe('Empirical Adversarial Challenge Suite: Payments, UI & Settlements', ()
       render(<Harness onSessionReady={s => { sessionRef.current = s; }} />);
 
       // Cancel unpaid order 102
-      await waitFor(async () => {
-        await sessionRef.current!.cancelInvoice({
-          invoice_id: 102,
-          reason: 'Client requested cancellation',
-        });
+      await sessionRef.current!.cancelInvoice({
+        invoice_id: 102,
+        reason: 'Client requested cancellation',
       });
 
-      const cancelledOrder = sessionRef.current!.demo.invoices.find(i => i.id === 102)!;
-      expect(cancelledOrder.computed_status).toBe('CANCELLED');
-      expect(cancelledOrder.outstanding_balance).toBe(0);
+      await waitFor(() => {
+        const cancelledOrder = sessionRef.current!.demo.invoices.find(i => i.id === 102)!;
+        expect(cancelledOrder.computed_status).toBe('CANCELLED');
+        expect(cancelledOrder.outstanding_balance).toBe(0);
+      });
 
       // Reset
-      await waitFor(() => {
-        sessionRef.current!.resetDemo();
-      });
+      sessionRef.current!.resetDemo();
 
-      const restoredOrder = sessionRef.current!.demo.invoices.find(i => i.id === 102)!;
-      expect(restoredOrder.computed_status).toBe('UNBILLED');
-      expect(restoredOrder.outstanding_balance).toBe(295000);
-      expect(restoredOrder.remarks).not.toContain('[CANCELLED');
+      await waitFor(() => {
+        const restoredOrder = sessionRef.current!.demo.invoices.find(i => i.id === 102)!;
+        expect(restoredOrder.computed_status).toBe('UNBILLED');
+        expect(restoredOrder.outstanding_balance).toBe(295000);
+        expect(restoredOrder.remarks).not.toContain('[CANCELLED');
+      });
     });
 
     it('verifies exact financial baseline KPI invariants across the demo snapshot', () => {
