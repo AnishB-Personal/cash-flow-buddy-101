@@ -71,12 +71,23 @@ export interface ApiClientConfig {
   mode?: ApiMode;
   baseUrl?: string;
   timeoutMs?: number;
+  allowedOrigins?: string[];
 }
 
 class ApiClient {
   private mode: ApiMode = "mock";
   private baseUrl = "";
   private timeoutMs = 10000;
+  private allowedOrigins: string[] = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+  ];
   // In-memory token storage (ephemeral, not persisted to web storage)
   private inMemoryToken: string | null = null;
   private inMemoryUser: UserProfile | null = null;
@@ -109,6 +120,9 @@ class ApiClient {
     }
     if (config.timeoutMs !== undefined) {
       this.timeoutMs = config.timeoutMs;
+    }
+    if (config.allowedOrigins !== undefined) {
+      this.allowedOrigins = [...config.allowedOrigins];
     }
   }
 
@@ -173,18 +187,43 @@ class ApiClient {
     this.onUnauthorizedCallback = callback;
   }
 
-  private getCredentialsMode(): RequestCredentials {
-    if (!this.baseUrl || this.baseUrl.startsWith("/")) {
+  public isTargetOriginTrusted(targetUrl?: string): boolean {
+    const checkUrl = targetUrl || this.baseUrl;
+    if (!checkUrl || checkUrl.startsWith("/")) {
+      return true; // Relative URLs are same-origin
+    }
+    if (typeof window !== "undefined" && window.location) {
+      try {
+        const parsed = new URL(checkUrl, window.location.origin);
+        if (parsed.origin === window.location.origin) {
+          return true; // Same origin is always trusted
+        }
+        return this.allowedOrigins.includes(parsed.origin);
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public getCredentialsMode(targetUrl?: string): RequestCredentials {
+    const checkUrl = targetUrl || this.baseUrl;
+    if (!checkUrl || checkUrl.startsWith("/")) {
       return "same-origin";
     }
     if (typeof window !== "undefined" && window.location) {
       try {
-        const baseOrigin = new URL(this.baseUrl, window.location.origin).origin;
-        if (baseOrigin !== window.location.origin) {
+        const baseOrigin = new URL(checkUrl, window.location.origin).origin;
+        if (baseOrigin === window.location.origin) {
+          return "same-origin";
+        }
+        if (this.isTargetOriginTrusted(checkUrl)) {
           return "include";
         }
+        // Untrusted cross-origin host: omit credentials to prevent leakage
+        return "omit";
       } catch {
-        return "include";
+        return "omit";
       }
     }
     return "same-origin";
@@ -207,7 +246,11 @@ class ApiClient {
       throw new Error("ApiClient.request() called while in mock mode. Use mock adapter instead.");
     }
 
-    const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const cleanEndpoint = endpoint.startsWith("//")
+      ? `/${endpoint.replace(/^\/+/, "")}`
+      : endpoint.startsWith("/")
+        ? endpoint
+        : `/${endpoint}`;
     const url = this.baseUrl ? `${this.baseUrl}${cleanEndpoint}` : cleanEndpoint;
 
     const headers: Record<string, string> = {
@@ -215,7 +258,7 @@ class ApiClient {
       ...options.headers,
     };
 
-    if (this.inMemoryToken) {
+    if (this.inMemoryToken && this.isTargetOriginTrusted(url)) {
       headers["Authorization"] = `Bearer ${this.inMemoryToken}`;
     }
 
@@ -474,7 +517,7 @@ class ApiClient {
       const headers: Record<string, string> = {
         "Accept": "application/json",
       };
-      if (tokenToRevoke) {
+      if (tokenToRevoke && this.isTargetOriginTrusted(url)) {
         headers["Authorization"] = `Bearer ${tokenToRevoke}`;
       }
       if (csrfToRevoke) {
@@ -483,7 +526,7 @@ class ApiClient {
       const response = await fetch(url, {
         method: "POST",
         headers,
-        credentials: "same-origin",
+        credentials: this.getCredentialsMode(url),
       });
 
       if (response.status === 200) {
@@ -945,10 +988,10 @@ class ApiClient {
     const url = `${this.baseUrl}${cleanEndpoint}`;
 
     const headers: Record<string, string> = {};
-    if (this.inMemoryToken) {
+    if (this.inMemoryToken && this.isTargetOriginTrusted(url)) {
       headers["Authorization"] = `Bearer ${this.inMemoryToken}`;
     }
-    const response = await fetch(url, { method: "GET", headers, credentials: "same-origin" });
+    const response = await fetch(url, { method: "GET", headers, credentials: this.getCredentialsMode(url) });
     if (!response.ok) {
       let errorMsg = `Export download failed (${response.status})`;
       try {

@@ -698,4 +698,137 @@ describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
       expect(mockNavigate).not.toHaveBeenCalledWith({ to: "/login" });
     });
   });
+
+  describe("AP01-R03: Credential Transport Security & Origin Isolation", () => {
+    it("returns 'same-origin' when baseUrl is empty or relative", () => {
+      apiClient.configure({ baseUrl: "" });
+      expect(apiClient.getCredentialsMode()).toBe("same-origin");
+      expect(apiClient.isTargetOriginTrusted()).toBe(true);
+
+      apiClient.configure({ baseUrl: "/api" });
+      expect(apiClient.getCredentialsMode()).toBe("same-origin");
+      expect(apiClient.isTargetOriginTrusted()).toBe(true);
+    });
+
+    it("returns 'include' and trusts approved cross-origin development endpoints", () => {
+      apiClient.configure({ baseUrl: "http://127.0.0.1:8000" });
+      expect(apiClient.isTargetOriginTrusted()).toBe(true);
+      expect(apiClient.getCredentialsMode()).toBe("include");
+
+      apiClient.configure({ baseUrl: "http://localhost:8000" });
+      expect(apiClient.isTargetOriginTrusted()).toBe(true);
+      expect(apiClient.getCredentialsMode()).toBe("include");
+    });
+
+    it("returns 'omit' and flags untrusted origins to prevent credential leakage", () => {
+      apiClient.configure({ baseUrl: "https://attacker.evil.com" });
+      expect(apiClient.isTargetOriginTrusted()).toBe(false);
+      expect(apiClient.getCredentialsMode()).toBe("omit");
+
+      apiClient.configure({ baseUrl: "http://rogue-server.internal:9999" });
+      expect(apiClient.isTargetOriginTrusted()).toBe(false);
+      expect(apiClient.getCredentialsMode()).toBe("omit");
+    });
+
+    it("does not attach Authorization bearer token to untrusted cross-origin requests", async () => {
+      let capturedHeaders: Record<string, string> | undefined;
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        capturedHeaders = init?.headers as Record<string, string>;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, customers: [] }),
+        });
+      }));
+
+      // In-memory token set
+      apiClient.setToken("super-secret-bearer-token");
+
+      // 1. Untrusted origin: token NOT attached
+      apiClient.configure({ baseUrl: "https://attacker.evil.com" });
+      await apiClient.getCustomers();
+      expect(capturedHeaders?.["Authorization"]).toBeUndefined();
+
+      // 2. Approved origin: token attached
+      apiClient.configure({ baseUrl: "http://127.0.0.1:8000" });
+      await apiClient.getCustomers();
+      expect(capturedHeaders?.["Authorization"]).toBe("Bearer super-secret-bearer-token");
+
+      // 3. Same-origin (empty baseUrl): token attached
+      apiClient.configure({ baseUrl: "" });
+      await apiClient.getCustomers();
+      expect(capturedHeaders?.["Authorization"]).toBe("Bearer super-secret-bearer-token");
+    });
+
+    it("sanitizes double slash in endpoints to avoid protocol-relative open redirection", async () => {
+      let capturedUrl = "";
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+        capturedUrl = url;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        });
+      }));
+
+      apiClient.configure({ baseUrl: "" });
+      await apiClient.request("//evil.com/phish");
+      expect(capturedUrl).toBe("/evil.com/phish");
+      expect(capturedUrl.startsWith("//")).toBe(false);
+    });
+  });
+
+  describe("AP01-R01: Obsolete Stage 4C Notice Remediation across All 11 Screens", () => {
+    const screens = [
+      "Dashboard",
+      "Customers",
+      "Orders",
+      "Invoices",
+      "Payments",
+      "AR Aging",
+      "Reports",
+      "Sales Targets",
+      "Performance Analytics",
+      "Users & Roles",
+      "Settings",
+    ] as const;
+
+    for (const screenName of screens) {
+      it(`never renders obsolete Stage Notice on ${screenName} in LIVE mode`, async () => {
+        apiClient.configure({ mode: "live", baseUrl: "" });
+        vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => {
+              if (url.includes("/api/auth/me")) {
+                return {
+                  user: { id: 1, username: "sandbox_admin", role: "admin", full_name: "Sandbox Administrator" },
+                  auth_type: "cookie",
+                };
+              }
+              if (url.includes("/api/customers")) return [];
+              if (url.includes("/api/invoices")) return [];
+              if (url.includes("/api/orders")) return [];
+              if (url.includes("/api/users")) return [];
+              if (url.includes("/api/targets")) return [];
+              if (url.includes("/api/payments")) return [];
+              if (url.includes("/api/dashboard/aging")) return { buckets: {}, total: 0 };
+              return { success: true };
+            },
+          });
+        }));
+
+        render(
+          <MockSessionProvider>
+            <Workspace initial={screenName} />
+          </MockSessionProvider>
+        );
+
+        // Stage Notice text must never appear on any of the 11 integrated screens
+        expect(screen.queryByText(/is not yet integrated with the live backend/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Stage Notice:/i)).not.toBeInTheDocument();
+      });
+    }
+  });
 });

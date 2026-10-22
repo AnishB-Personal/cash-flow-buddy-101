@@ -675,7 +675,7 @@ export function Workspace({ initial = "Dashboard" }: { initial?: Screen }) {
                   )}
                 </div>
               </header>
-              {isLive && page !== "Customers" && page !== "Settings" && page !== "Orders" && page !== "Invoices" && page !== "Users & Roles" && (
+              {isLive && !implemented.includes(page) && (
                 <div style={{
                   padding: "10px 16px",
                   margin: "0 0 16px 0",

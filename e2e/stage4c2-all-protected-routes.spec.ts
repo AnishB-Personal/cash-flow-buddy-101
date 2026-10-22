@@ -54,4 +54,27 @@ test.describe("Stage 4C.2: Comprehensive Anonymous Protected Route Boundary", ()
     await expect(page.getByRole("heading", { name: "Orders" })).toBeVisible();
     await expect(page.getByRole("button", { name: /New Order/i })).toBeVisible();
   });
+
+  test("AP01-R01: Obsolete Stage Notice never appears on any of the 11 integrated LIVE screens", async ({ page }) => {
+    // 1. Log in as sandbox_admin
+    await page.goto(`${FRONTEND_URL}/login`);
+    const loginPromise = page.waitForResponse(
+      (res) => res.url().includes("/api/auth/login") && res.request().method() === "POST"
+    );
+    await page.getByLabel("Username").fill("sandbox_admin");
+    await page.getByLabel("Password").fill("AdminPass123!");
+    await page.getByRole("button", { name: /Sign In/i }).click();
+    await loginPromise;
+    await expect(page).toHaveURL(`${FRONTEND_URL}/`);
+
+    // 2. Verify all 11 screens: obsolete stage notice must NEVER appear
+    for (const route of PROTECTED_ROUTES) {
+      await page.goto(`${FRONTEND_URL}${route}`);
+      // Ensure page is rendered
+      await expect(page.locator("h1")).toBeVisible();
+      // Assert obsolete Stage Notice is not visible on the page
+      await expect(page.getByText(/Stage Notice:/i)).not.toBeVisible();
+      await expect(page.getByText(/screen is not yet integrated with the live backend/i)).not.toBeVisible();
+    }
+  });
 });

@@ -156,4 +156,121 @@ test.describe('Stage 4C.7 — LIVE Mode User Administration & RBAC E2E', () => {
     // Verify user is gone from UI
     await expect(page.locator(`tr:has-text("@${testUsername}")`)).not.toBeVisible();
   });
+
+  test('CF4C7-LIVE-04: Non-admin direct API mutation rejection (HTTP 403 Forbidden)', async ({ page, request }) => {
+    // 1. Log in as sandbox_viewer
+    const loginPromise = page.waitForResponse(
+      (res) => res.url().includes('/api/auth/login') && res.request().method() === 'POST'
+    );
+    await page.fill('#username', 'sandbox_viewer');
+    await page.fill('#password', 'ViewerPass123!');
+    await page.click('button[type="submit"]');
+    await expect(page.locator('h1')).toHaveText('Business overview');
+
+    const loginRes = await loginPromise;
+    const token = (await loginRes.json()).token;
+    const headers = { Authorization: `Bearer ${token}` };
+
+    // 2. Direct mutation attempts are rejected with 403
+    const postRes = await request.post('http://127.0.0.1:8000/api/users', {
+      headers,
+      data: { username: 'hacker_user', password: 'HackerPass123!', role: 'admin' },
+    });
+    expect(postRes.status()).toBe(403);
+
+    const putRes = await request.put('http://127.0.0.1:8000/api/users/1', {
+      headers,
+      data: { role: 'admin' },
+    });
+    expect(putRes.status()).toBe(403);
+
+    const passRes = await request.put('http://127.0.0.1:8000/api/users/1/password', {
+      headers,
+      data: { new_password: 'NewAdminPass123!' },
+    });
+    expect(passRes.status()).toBe(403);
+
+    const delRes = await request.delete('http://127.0.0.1:8000/api/users/1', {
+      headers,
+    });
+    expect(delRes.status()).toBe(403);
+  });
+
+  test('CF4C7-LIVE-05: User creation persists in PostgreSQL across full page reload', async ({ page }) => {
+    // 1. Log in as sandbox_admin
+    await page.fill('#username', 'sandbox_admin');
+    await page.fill('#password', 'AdminPass123!');
+    await page.click('button[type="submit"]');
+    await expect(page.locator('h1')).toHaveText('Business overview');
+
+    // 2. Navigate to Users & Roles
+    await page.locator('.cf-sidebar .cf-nav-item', { hasText: 'Users & Roles' }).click();
+    await expect(page.locator('[data-testid="users-screen"]')).toBeVisible();
+
+    // 3. Provision new user
+    const testUser = `reload_usr_${Date.now().toString().slice(-4)}`;
+    await page.click('[data-testid="btn-new-user"]');
+    await page.fill('#user-username', testUser);
+    await page.fill('#user-password', 'ReloadPass123!');
+    await page.fill('#user-fullname', 'Reload Persistence Test');
+    await page.selectOption('#user-role', 'sales');
+    await page.click('button:has-text("Proceed to validation")');
+    await page.click('button:has-text("Continue to review")');
+    await page.click('button:has-text("Continue to confirmation")');
+    await page.click('button:has-text("Confirm create user")');
+    await expect(page.locator('text=User account successfully created')).toBeVisible();
+    await page.click('button[aria-label="Close user drawer"]');
+
+    // 4. Verify user in table before reload
+    await expect(page.locator(`tr:has-text("@${testUser}")`)).toBeVisible();
+
+    // 5. Perform hard page reload
+    await page.reload();
+    await expect(page.locator('[data-testid="users-screen"]')).toBeVisible();
+
+    // 6. Verify user is still present after reload (PostgreSQL persistence)
+    await expect(page.locator(`tr:has-text("@${testUser}")`)).toBeVisible();
+
+    // 7. Cleanup test user
+    const deleteBtn = page.locator(`button[aria-label="Delete user ${testUser}"]`).first();
+    await deleteBtn.click();
+    await page.click('button:has-text("Proceed to validation")');
+    await page.click('button:has-text("Continue to review")');
+    await page.click('button:has-text("Continue to confirmation")');
+    await page.click('button:has-text("Confirm delete user")');
+    await expect(page.locator('text=User account successfully deleted')).toBeVisible();
+    await page.click('button[aria-label="Close user drawer"]');
+    await expect(page.locator(`tr:has-text("@${testUser}")`)).not.toBeVisible();
+  });
+
+  test('CF4C7-LIVE-06: Self-deletion and last-admin demotion rejected with HTTP 400', async ({ page, request }) => {
+    // 1. Log in as sandbox_admin
+    const loginPromise = page.waitForResponse(
+      (res) => res.url().includes('/api/auth/login') && res.request().method() === 'POST'
+    );
+    await page.fill('#username', 'sandbox_admin');
+    await page.fill('#password', 'AdminPass123!');
+    await page.click('button[type="submit"]');
+    await expect(page.locator('h1')).toHaveText('Business overview');
+
+    const loginRes = await loginPromise;
+    const adminData = await loginRes.json();
+    const adminId = adminData.user.id;
+    const headers = { Authorization: `Bearer ${adminData.token}` };
+
+    // 2. Direct API call attempting self-deletion
+    const delSelf = await request.delete(`http://127.0.0.1:8000/api/users/${adminId}`, { headers });
+    expect(delSelf.status()).toBe(400);
+    const delJson = await delSelf.json();
+    expect(delJson.detail).toContain('Cannot delete your own account');
+
+    // 3. Direct API call attempting last-admin demotion
+    const demoteAdmin = await request.put(`http://127.0.0.1:8000/api/users/${adminId}/role`, {
+      headers,
+      data: { role: 'viewer' },
+    });
+    expect(demoteAdmin.status()).toBe(400);
+    const demoteJson = await demoteAdmin.json();
+    expect(demoteJson.detail).toContain('must have at least one active administrator');
+  });
 });
