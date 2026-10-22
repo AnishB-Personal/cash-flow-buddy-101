@@ -720,17 +720,47 @@ describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
       expect(apiClient.getCredentialsMode()).toBe("include");
     });
 
-    it("returns 'omit' and flags untrusted origins to prevent credential leakage", () => {
-      apiClient.configure({ baseUrl: "https://attacker.evil.com" });
-      expect(apiClient.isTargetOriginTrusted()).toBe(false);
-      expect(apiClient.getCredentialsMode()).toBe("omit");
-
-      apiClient.configure({ baseUrl: "http://rogue-server.internal:9999" });
-      expect(apiClient.isTargetOriginTrusted()).toBe(false);
-      expect(apiClient.getCredentialsMode()).toBe("omit");
+    it("rejects protocol-relative, malformed, and unsupported-scheme base URLs", () => {
+      expect(() => apiClient.configure({ baseUrl: "//attacker.com" })).toThrow(/Protocol-relative/i);
+      expect(() => apiClient.configure({ baseUrl: "javascript:alert(1)" })).toThrow(/Unsupported scheme/i);
+      expect(() => apiClient.configure({ baseUrl: "ftp://storage.local" })).toThrow(/Unsupported scheme/i);
+      expect(() => apiClient.configure({ baseUrl: "file:///etc/passwd" })).toThrow(/Unsupported scheme/i);
+      expect(() => apiClient.configure({ baseUrl: "http://[invalid-host" })).toThrow(/Malformed URL/i);
     });
 
-    it("does not attach Authorization bearer token to untrusted cross-origin requests", async () => {
+    it("never classifies protocol-relative URLs as trusted merely because they start with slash", () => {
+      expect(apiClient.isTargetOriginTrusted("//evil.com")).toBe(false);
+      expect(apiClient.isTargetOriginTrusted("//evil.com/api")).toBe(false);
+      expect(apiClient.getCredentialsMode("//evil.com")).toBe("omit");
+    });
+
+    it("fails closed on untrusted origins, blocking requests before dispatching fetch", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      apiClient.configure({ baseUrl: "https://attacker.evil.com" });
+      await expect(apiClient.request("/api/customers")).rejects.toThrow(/Untrusted target origin/i);
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      // Logout also fails closed on untrusted origin: does not dispatch fetch, reports serverRevoked: false
+      const logoutResult = await apiClient.logout();
+      expect(logoutResult.serverRevoked).toBe(false);
+      expect(logoutResult.error).toContain("Untrusted target origin");
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      // Export download also fails closed on untrusted origin
+      await expect(apiClient.downloadExport("excel")).rejects.toThrow(/Untrusted target origin/i);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects protocol-relative and absolute URL endpoints", async () => {
+      apiClient.configure({ baseUrl: "" });
+      await expect(apiClient.request("//evil.com/phish")).rejects.toThrow(/Protocol-relative endpoints/i);
+      await expect(apiClient.request("https://evil.com/phish")).rejects.toThrow(/Absolute URLs and scheme prefixes/i);
+      await expect(apiClient.request("javascript:void(0)")).rejects.toThrow(/Absolute URLs and scheme prefixes/i);
+    });
+
+    it("prevents bearer token or Authorization header forwarding to untrusted destinations", async () => {
       let capturedHeaders: Record<string, string> | undefined;
       vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
         capturedHeaders = init?.headers as Record<string, string>;
@@ -741,40 +771,44 @@ describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
         });
       }));
 
-      // In-memory token set
       apiClient.setToken("super-secret-bearer-token");
 
-      // 1. Untrusted origin: token NOT attached
-      apiClient.configure({ baseUrl: "https://attacker.evil.com" });
-      await apiClient.getCustomers();
-      expect(capturedHeaders?.["Authorization"]).toBeUndefined();
-
-      // 2. Approved origin: token attached
+      // 1. Approved origin: token attached properly
       apiClient.configure({ baseUrl: "http://127.0.0.1:8000" });
       await apiClient.getCustomers();
       expect(capturedHeaders?.["Authorization"]).toBe("Bearer super-secret-bearer-token");
 
-      // 3. Same-origin (empty baseUrl): token attached
+      // 2. Same-origin: token attached properly
       apiClient.configure({ baseUrl: "" });
       await apiClient.getCustomers();
       expect(capturedHeaders?.["Authorization"]).toBe("Bearer super-secret-bearer-token");
     });
 
-    it("sanitizes double slash in endpoints to avoid protocol-relative open redirection", async () => {
-      let capturedUrl = "";
-      vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
-        capturedUrl = url;
+    it("supports safe runtime configuration of trusted origins for future deployment", async () => {
+      let capturedInit: RequestInit | undefined;
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        capturedInit = init;
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: async () => ({ success: true }),
+          json: async () => ({ success: true, customers: [] }),
         });
       }));
 
-      apiClient.configure({ baseUrl: "" });
-      await apiClient.request("//evil.com/phish");
-      expect(capturedUrl).toBe("/evil.com/phish");
-      expect(capturedUrl.startsWith("//")).toBe(false);
+      apiClient.setToken("prod-deploy-token");
+
+      // 1. Custom production domain configured dynamically via allowedOrigins
+      apiClient.configure({
+        baseUrl: "https://api.collectflow.enterprise.org",
+        allowedOrigins: ["https://api.collectflow.enterprise.org"],
+      });
+
+      expect(apiClient.isTargetOriginTrusted()).toBe(true);
+      expect(apiClient.getCredentialsMode()).toBe("include");
+
+      await apiClient.getCustomers();
+      expect(capturedInit?.credentials).toBe("include");
+      expect((capturedInit?.headers as Record<string, string>)?.["Authorization"]).toBe("Bearer prod-deploy-token");
     });
   });
 

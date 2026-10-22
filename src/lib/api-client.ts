@@ -102,10 +102,28 @@ class ApiClient {
     const rawMode = (import.meta.env["VITE_API_MODE"] || "mock").toLowerCase();
     this.mode = rawMode === "live" ? "live" : "mock";
 
+    const envAllowed = import.meta.env["VITE_ALLOWED_ORIGINS"];
+    if (envAllowed) {
+      this.allowedOrigins = envAllowed.split(",").map((o: string) => o.trim()).filter(Boolean);
+    }
+
     if (this.mode === "live") {
       const url = import.meta.env["VITE_API_BASE_URL"];
-      // In live mode, an empty or omitted VITE_API_BASE_URL specifies same-origin relative URLs (/api/...)
-      this.baseUrl = (url ?? "").trim().replace(/\/+$/, "");
+      if (url) {
+        const trimmed = url.trim();
+        this.validateBaseUrl(trimmed);
+        this.baseUrl = trimmed.replace(/\/+$/, "");
+        if (!this.baseUrl.startsWith("/")) {
+          try {
+            const baseOrigin = new URL(this.baseUrl).origin;
+            if (!this.allowedOrigins.includes(baseOrigin)) {
+              this.allowedOrigins.push(baseOrigin);
+            }
+          } catch {}
+        }
+      } else {
+        this.baseUrl = "";
+      }
     } else {
       this.baseUrl = "";
     }
@@ -115,14 +133,15 @@ class ApiClient {
     if (config.mode !== undefined) {
       this.mode = config.mode;
     }
+    if (config.allowedOrigins !== undefined) {
+      this.allowedOrigins = [...config.allowedOrigins];
+    }
     if (config.baseUrl !== undefined) {
+      this.validateBaseUrl(config.baseUrl);
       this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     }
     if (config.timeoutMs !== undefined) {
       this.timeoutMs = config.timeoutMs;
-    }
-    if (config.allowedOrigins !== undefined) {
-      this.allowedOrigins = [...config.allowedOrigins];
     }
   }
 
@@ -187,40 +206,106 @@ class ApiClient {
     this.onUnauthorizedCallback = callback;
   }
 
-  public isTargetOriginTrusted(targetUrl?: string): boolean {
-    const checkUrl = targetUrl || this.baseUrl;
-    if (!checkUrl || checkUrl.startsWith("/")) {
-      return true; // Relative URLs are same-origin
+  public validateBaseUrl(url: string): void {
+    if (!url) return;
+    if (url.startsWith("//")) {
+      throw new ApiError(0, "Invalid baseUrl: Protocol-relative URLs ('//') are strictly forbidden.");
     }
-    if (typeof window !== "undefined" && window.location) {
+    if (url.startsWith("/")) {
+      return;
+    }
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new ApiError(0, `Invalid baseUrl: Unsupported scheme '${parsed.protocol}'. Only HTTP and HTTPS are permitted.`);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(0, "Invalid baseUrl: Malformed URL syntax.");
+    }
+  }
+
+  public isTargetOriginTrusted(targetUrl?: string): boolean {
+    const checkUrl = targetUrl !== undefined ? targetUrl : this.baseUrl;
+    if (!checkUrl) return true; // Relative URLs without baseUrl are same-origin
+    if (checkUrl.startsWith("//")) return false; // Strictly reject protocol-relative URLs
+    if (checkUrl.startsWith("/")) return true; // Relative paths are same-origin
+
+    if (typeof window !== "undefined" && window.location && window.location.origin) {
       try {
         const parsed = new URL(checkUrl, window.location.origin);
-        if (parsed.origin === window.location.origin) {
-          return true; // Same origin is always trusted
-        }
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+        if (parsed.origin === window.location.origin) return true;
         return this.allowedOrigins.includes(parsed.origin);
       } catch {
         return false;
       }
     }
-    return true;
+    return false;
+  }
+
+  public resolveAndValidateUrl(endpoint: string): { url: string; origin: string; isCross: boolean } {
+    if (!endpoint || typeof endpoint !== "string") {
+      throw new ApiError(0, "Invalid endpoint: Endpoint cannot be empty.");
+    }
+    if (endpoint.startsWith("//")) {
+      throw new ApiError(0, "Invalid endpoint: Protocol-relative endpoints ('//') are strictly forbidden.");
+    }
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(endpoint)) {
+      throw new ApiError(0, "Invalid endpoint: Absolute URLs and scheme prefixes are forbidden as endpoints.");
+    }
+
+    this.validateBaseUrl(this.baseUrl);
+
+    const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const cleanBase = this.baseUrl ? this.baseUrl.replace(/\/+$/, "") : "";
+    const resolvedPath = cleanBase ? `${cleanBase}${cleanEndpoint}` : cleanEndpoint;
+
+    const clientOrigin =
+      typeof window !== "undefined" && window.location && window.location.origin
+        ? window.location.origin
+        : "http://localhost:3000";
+
+    let parsedTarget: URL;
+    try {
+      parsedTarget = new URL(resolvedPath, clientOrigin);
+    } catch {
+      throw new ApiError(0, "Invalid target URL: Unable to resolve URL.");
+    }
+
+    if (parsedTarget.protocol !== "http:" && parsedTarget.protocol !== "https:") {
+      throw new ApiError(0, `Invalid target scheme '${parsedTarget.protocol}'. Only HTTP and HTTPS are permitted.`);
+    }
+
+    const isSameOrigin = parsedTarget.origin === clientOrigin;
+    const isApprovedOrigin = this.allowedOrigins.includes(parsedTarget.origin);
+
+    if (!isSameOrigin && !isApprovedOrigin) {
+      throw new ApiError(0, `Untrusted target origin '${parsedTarget.origin}'. Request blocked to prevent credential leakage.`);
+    }
+
+    return {
+      url: resolvedPath,
+      origin: parsedTarget.origin,
+      isCross: !isSameOrigin,
+    };
   }
 
   public getCredentialsMode(targetUrl?: string): RequestCredentials {
-    const checkUrl = targetUrl || this.baseUrl;
-    if (!checkUrl || checkUrl.startsWith("/")) {
-      return "same-origin";
-    }
-    if (typeof window !== "undefined" && window.location) {
+    const checkUrl = targetUrl !== undefined ? targetUrl : this.baseUrl;
+    if (!checkUrl) return "same-origin";
+    if (checkUrl.startsWith("//")) return "omit";
+    if (checkUrl.startsWith("/")) return "same-origin";
+
+    if (typeof window !== "undefined" && window.location && window.location.origin) {
       try {
-        const baseOrigin = new URL(checkUrl, window.location.origin).origin;
-        if (baseOrigin === window.location.origin) {
+        const parsed = new URL(checkUrl, window.location.origin);
+        if (parsed.origin === window.location.origin) {
           return "same-origin";
         }
         if (this.isTargetOriginTrusted(checkUrl)) {
           return "include";
         }
-        // Untrusted cross-origin host: omit credentials to prevent leakage
         return "omit";
       } catch {
         return "omit";
@@ -246,19 +331,22 @@ class ApiClient {
       throw new Error("ApiClient.request() called while in mock mode. Use mock adapter instead.");
     }
 
-    const cleanEndpoint = endpoint.startsWith("//")
-      ? `/${endpoint.replace(/^\/+/, "")}`
-      : endpoint.startsWith("/")
-        ? endpoint
-        : `/${endpoint}`;
-    const url = this.baseUrl ? `${this.baseUrl}${cleanEndpoint}` : cleanEndpoint;
+    const { url, isCross } = this.resolveAndValidateUrl(endpoint);
 
     const headers: Record<string, string> = {
       "Accept": "application/json",
       ...options.headers,
     };
 
-    if (this.inMemoryToken && this.isTargetOriginTrusted(url)) {
+    // Prevent Authorization header forwarding to untrusted origins
+    const isTrusted = this.isTargetOriginTrusted(url);
+    if (!isTrusted) {
+      for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() === "authorization") {
+          delete headers[key];
+        }
+      }
+    } else if (this.inMemoryToken && !headers["Authorization"]) {
       headers["Authorization"] = `Bearer ${this.inMemoryToken}`;
     }
 
@@ -291,7 +379,7 @@ class ApiClient {
     const fetchOptions: RequestInit = {
       method: options.method || "GET",
       headers,
-      credentials: this.getCredentialsMode(),
+      credentials: isCross ? "include" : "same-origin",
       signal: combinedSignal,
     };
     if (requestBody !== undefined) {
@@ -513,7 +601,7 @@ class ApiClient {
     }
 
     try {
-      const url = this.baseUrl ? `${this.baseUrl}/api/auth/logout` : "/api/auth/logout";
+      const { url, isCross } = this.resolveAndValidateUrl("/api/auth/logout");
       const headers: Record<string, string> = {
         "Accept": "application/json",
       };
@@ -526,7 +614,7 @@ class ApiClient {
       const response = await fetch(url, {
         method: "POST",
         headers,
-        credentials: this.getCredentialsMode(url),
+        credentials: isCross ? "include" : "same-origin",
       });
 
       if (response.status === 200) {
@@ -985,13 +1073,13 @@ class ApiClient {
     if (params?.as_of_date) searchParams.set("as_of_date", params.as_of_date);
     const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
     const cleanEndpoint = `/api/export/${format}${query}`;
-    const url = `${this.baseUrl}${cleanEndpoint}`;
+    const { url, isCross } = this.resolveAndValidateUrl(cleanEndpoint);
 
     const headers: Record<string, string> = {};
     if (this.inMemoryToken && this.isTargetOriginTrusted(url)) {
       headers["Authorization"] = `Bearer ${this.inMemoryToken}`;
     }
-    const response = await fetch(url, { method: "GET", headers, credentials: this.getCredentialsMode(url) });
+    const response = await fetch(url, { method: "GET", headers, credentials: isCross ? "include" : "same-origin" });
     if (!response.ok) {
       let errorMsg = `Export download failed (${response.status})`;
       try {
