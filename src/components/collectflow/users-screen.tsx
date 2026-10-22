@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Users,
   ShieldCheck,
@@ -11,6 +11,7 @@ import {
   Info,
   LockKeyhole,
   ArrowUpDown,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ import { FilterChoice, EmptyState } from './controls';
 import { useMockSession } from './session';
 import { UserDrawer, type UserDrawerMode } from './user-drawer';
 import { type User, type Role, canManageUsers } from '@/data/users';
+import { apiClient } from '@/lib/api-client';
 
 export interface UsersScreenProps {
   container?: HTMLElement | null | undefined;
@@ -26,7 +28,41 @@ export interface UsersScreenProps {
 
 export function UsersScreen({ container, empty = false }: UsersScreenProps) {
   const { role, users, demo } = useMockSession();
-  const isAdmin = canManageUsers(role);
+  const isLive = apiClient.getMode() === 'live';
+  const currentUser = apiClient.getCurrentUser();
+  const activeRole = isLive && currentUser?.role ? currentUser.role : role;
+  const isAdmin = canManageUsers(activeRole);
+
+  const [liveUsers, setLiveUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const fetchUsers = useCallback(async () => {
+    if (!isLive) return;
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const data = await apiClient.getUsers();
+      const mapped: User[] = data.map(u => ({
+        id: u.id,
+        username: u.username,
+        role: u.role,
+        full_name: u.full_name || u.username,
+        created_at: u.created_at ? u.created_at.replace('T', ' ').substring(0, 19) : '',
+      }));
+      setLiveUsers(mapped);
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : 'Failed to fetch users from backend');
+    } finally {
+      setLoading(false);
+    }
+  }, [isLive]);
+
+  useEffect(() => {
+    if (isLive) {
+      void fetchUsers();
+    }
+  }, [isLive, fetchUsers]);
 
   // Search & Filter state
   const [query, setQuery] = useState('');
@@ -40,7 +76,8 @@ export function UsersScreen({ container, empty = false }: UsersScreenProps) {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
   // Active user list
-  const activeUsers = empty ? [] : users;
+  const userList = isLive ? liveUsers : users;
+  const activeUsers = empty ? [] : userList;
 
   // KPI Metrics calculation
   const totalUsersCount = activeUsers.length;
@@ -162,6 +199,18 @@ export function UsersScreen({ container, empty = false }: UsersScreenProps) {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {isLive && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchUsers()}
+              disabled={loading}
+              aria-label="Refresh user list"
+              data-testid="btn-refresh-users"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+            </Button>
+          )}
           {isAdmin ? (
             <Button onClick={handleCreate} aria-label="New User" data-testid="btn-new-user">
               <Plus size={16} /> New User
@@ -178,6 +227,27 @@ export function UsersScreen({ container, empty = false }: UsersScreenProps) {
           )}
         </div>
       </header>
+
+      {/* Fetch Error Banner */}
+      {fetchError && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '12px 16px',
+            backgroundColor: 'color-mix(in oklch, var(--destructive) 10%, var(--card))',
+            borderRadius: 6,
+            border: '1px solid var(--destructive)',
+            marginBottom: 20,
+            fontSize: 13,
+            color: 'var(--destructive)',
+          }}
+        >
+          <span>{fetchError}</span>
+        </div>
+      )}
 
       {/* Non-Admin Viewing Mode Banner */}
       {!isAdmin && (
@@ -545,6 +615,8 @@ export function UsersScreen({ container, empty = false }: UsersScreenProps) {
           mode={drawerMode}
           user={selectedUser}
           container={container}
+          existingUsers={userList}
+          onSuccess={isLive ? () => void fetchUsers() : undefined}
           close={() => {
             setDrawerOpen(false);
             setSelectedUser(null);

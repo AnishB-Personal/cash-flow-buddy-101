@@ -173,6 +173,23 @@ class ApiClient {
     this.onUnauthorizedCallback = callback;
   }
 
+  private getCredentialsMode(): RequestCredentials {
+    if (!this.baseUrl || this.baseUrl.startsWith("/")) {
+      return "same-origin";
+    }
+    if (typeof window !== "undefined" && window.location) {
+      try {
+        const baseOrigin = new URL(this.baseUrl, window.location.origin).origin;
+        if (baseOrigin !== window.location.origin) {
+          return "include";
+        }
+      } catch {
+        return "include";
+      }
+    }
+    return "same-origin";
+  }
+
   /**
    * Execute an HTTP request against the live backend
    */
@@ -231,7 +248,7 @@ class ApiClient {
     const fetchOptions: RequestInit = {
       method: options.method || "GET",
       headers,
-      credentials: "same-origin",
+      credentials: this.getCredentialsMode(),
       signal: combinedSignal,
     };
     if (requestBody !== undefined) {

@@ -32,6 +32,7 @@ import {
   validateUpdate,
   VALID_ROLES,
 } from '@/data/users';
+import { apiClient } from '@/lib/api-client';
 
 export type UserDrawerMode = 'create' | 'update' | 'delete';
 
@@ -39,13 +40,38 @@ export interface UserDrawerProps {
   mode: UserDrawerMode;
   user?: User | null | undefined;
   container?: HTMLElement | null | undefined;
+  existingUsers?: User[];
+  onSuccess?: () => void;
   close: () => void;
 }
 
-export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
+function validateLivePassword(password?: string): { valid: boolean; error?: string } {
+  if (!password || password.length < 12) {
+    return { valid: false, error: 'Password must be at least 12 characters long.' };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one uppercase letter.' };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one lowercase letter.' };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one digit.' };
+  }
+  if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one special character.' };
+  }
+  return { valid: true };
+}
+
+export function UserDrawer({ mode, user, container, existingUsers, onSuccess, close }: UserDrawerProps) {
   const { role, users, demo, confirmUser, userAdapter, mobile, targets } = useMockSession();
-  const initialRole = useRef(role);
-  const isAdmin = role === 'admin';
+  const isLive = apiClient.getMode() === 'live';
+  const currentUser = apiClient.getCurrentUser();
+  const activeRole = isLive && currentUser?.role ? currentUser.role : role;
+  const initialRole = useRef(activeRole);
+  const isAdmin = activeRole === 'admin';
+  const currentUsers = existingUsers || users;
   const userTargets = user ? targets.filter(t => t.user_id === user.id) : [];
 
   // 5-step workflow state
@@ -120,12 +146,12 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
     if (mode === 'create') {
       const fieldErrors: Record<string, string> = {};
 
-      const usernameVal = validateUsername(username, users);
+      const usernameVal = validateUsername(username, currentUsers);
       if (!usernameVal.valid) {
         fieldErrors['username'] = usernameVal.error || 'Invalid username';
       }
 
-      const passwordVal = validatePassword(password);
+      const passwordVal = isLive ? validateLivePassword(password) : validatePassword(password);
       if (!passwordVal.valid) {
         fieldErrors['password'] = passwordVal.error || 'Password must be at least 6 characters';
       }
@@ -161,7 +187,7 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
         return false;
       }
 
-      const updateVal = validateUpdate(user.id, roleInput, users);
+      const updateVal = validateUpdate(user.id, roleInput, currentUsers);
       if (!updateVal.valid) {
         setError(updateVal.error || 'Validation failed');
         setValidationPassed(false);
@@ -180,11 +206,27 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
         return false;
       }
 
-      const deleteVal = validateDelete(user.id, users, demo.invoices, 1);
-      if (!deleteVal.valid) {
-        setError(deleteVal.error || 'Deletion blocked by system safeguard');
-        setValidationPassed(false);
-        return false;
+      if (isLive) {
+        if (currentUser && user.id === currentUser.id) {
+          setError('Cannot delete your own account');
+          setValidationPassed(false);
+          return false;
+        }
+        if (user.role === 'admin') {
+          const adminCount = currentUsers.filter(u => u.role === 'admin').length;
+          if (adminCount <= 1) {
+            setError('Cannot delete the last administrator account');
+            setValidationPassed(false);
+            return false;
+          }
+        }
+      } else {
+        const deleteVal = validateDelete(user.id, users, demo.invoices, 1);
+        if (!deleteVal.valid) {
+          setError(deleteVal.error || 'Deletion blocked by system safeguard');
+          setValidationPassed(false);
+          return false;
+        }
       }
 
       setValidationPassed(true);
@@ -209,7 +251,7 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
     if (mode === 'create') {
       const cleanUsername = username.trim().toLowerCase();
       const finalFullName = fullName.trim() || (cleanUsername.charAt(0).toUpperCase() + cleanUsername.slice(1));
-      const nextId = users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1;
+      const nextId = currentUsers.length > 0 ? Math.max(...currentUsers.map(u => u.id)) + 1 : 1;
 
       const targetUser: User = {
         id: nextId,
@@ -315,8 +357,10 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
     if (!review || submitting.current) return;
 
     // Mid-drawer role permission revalidation
-    if (role !== 'admin') {
-      const denialMsg = `Permission Denied: Simulated role changed to ${role}. Only Administrators can perform user administration.`;
+    if (!isAdmin) {
+      const denialMsg = isLive
+        ? 'Permission Denied: Only Administrators can perform user administration.'
+        : `Permission Denied: Simulated role changed to ${role}. Only Administrators can perform user administration.`;
       setError(denialMsg);
       throw new Error(denialMsg);
     }
@@ -326,11 +370,45 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
     setError('');
 
     try {
-      const committed = await confirmUser(review);
-      if (committed) {
-        setResultUser(committed);
-      } else if (review.targetUser) {
-        setResultUser(review.targetUser);
+      if (isLive) {
+        if (review.action === 'create') {
+          const res = await apiClient.createUser({
+            username: review.input!.username!,
+            password: password,
+            role: (review.input!.role || 'sales') as any,
+            full_name: review.input!.full_name,
+          });
+          setResultUser({
+            id: res.user_id,
+            username: review.input!.username!,
+            role: (review.input!.role || 'sales') as Role,
+            full_name: review.input!.full_name || review.input!.username!,
+            created_at: new Date().toISOString(),
+          });
+        } else if (review.action === 'update' && user) {
+          await apiClient.updateUser(user.id, {
+            role: review.input!.role,
+            full_name: review.input!.full_name,
+          });
+          setResultUser({
+            ...user,
+            role: (review.input!.role || user.role) as Role,
+            full_name: review.input!.full_name ?? user.full_name,
+          });
+        } else if (review.action === 'delete' && user) {
+          await apiClient.deleteUser(user.id);
+          setResultUser(user);
+        }
+        if (onSuccess) {
+          onSuccess();
+        }
+      } else {
+        const committed = await confirmUser(review);
+        if (committed) {
+          setResultUser(committed);
+        } else if (review.targetUser) {
+          setResultUser(review.targetUser);
+        }
       }
       setPassword('');
       setStep('result');
@@ -447,7 +525,9 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
               >
                 <ShieldAlert size={18} style={{ flexShrink: 0 }} />
                 <span>
-                  Permission Denied: Simulated role changed to {role}. Only Administrators can perform user administration.
+                  {isLive
+                    ? 'Permission Denied: Only Administrators can perform user administration.'
+                    : `Permission Denied: Simulated role changed to ${role}. Only Administrators can perform user administration.`}
                 </span>
               </div>
             )}
@@ -487,7 +567,9 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
                         </div>
 
                         <div>
-                          <label htmlFor="user-password">Password (required, min 6 chars)</label>
+                          <label htmlFor="user-password">
+                            Password (required{isLive ? ', min 12 chars & complex' : ', min 6 chars'})
+                          </label>
                           <Input
                             id="user-password"
                             type="password"
@@ -505,7 +587,9 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
                           />
                           <FieldError id="error-password" message={errors['password']} />
                           <p id="user-password-help" className="cf-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                            Ephemeral input. Used strictly for length validation and NEVER stored in demo session.
+                            {isLive
+                              ? 'Must contain at least 12 characters with uppercase, lowercase, digit, and special character.'
+                              : 'Ephemeral input. Used strictly for length validation and NEVER stored in demo session.'}
                           </p>
                         </div>
 
@@ -913,7 +997,7 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
                   </table>
                 </FormSection>
 
-                {/* Explicit Demo Disclaimer */}
+                {/* Explicit Demo / Live Disclaimer */}
                 <div
                   style={{
                     display: 'flex',
@@ -929,7 +1013,10 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
                 >
                   <Info size={18} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 1 }} />
                   <p style={{ margin: 0, lineHeight: 1.5 }}>
-                    <strong>Demo notice:</strong> User creation is simulated in local demo state. Does not create a real authenticated account.
+                    <strong>{isLive ? 'Live system notice:' : 'Demo notice:'}</strong>{' '}
+                    {isLive
+                      ? 'User administration changes will be persisted to PostgreSQL and audited.'
+                      : 'User creation is simulated in local demo state. Does not create a real authenticated account.'}
                   </p>
                 </div>
 
@@ -984,7 +1071,7 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
                     </div>
                   </dl>
 
-                  {/* Simulated Audit Logging Notice */}
+                  {/* Audit Logging Notice */}
                   <div
                     style={{
                       padding: 12,
@@ -996,7 +1083,9 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
                     }}
                   >
                     <span>
-                      Simulated audit logging: Action will be recorded as append-only event in audit trail.
+                      {isLive
+                        ? 'PostgreSQL audit logging: Action will be recorded as append-only event in audit_logs table.'
+                        : 'Simulated audit logging: Action will be recorded as append-only event in audit trail.'}{' '}
                       Sensitive credentials are sanitized and never retained in session state.
                     </span>
                   </div>
@@ -1060,7 +1149,9 @@ export function UserDrawer({ mode, user, container, close }: UserDrawerProps) {
                         : 'User account successfully deleted'}
                     </strong>
                     <p className="cf-muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
-                      Simulated user directory state is updated for the active demo session.
+                      {isLive
+                        ? 'User directory state is updated and persisted in PostgreSQL.'
+                        : 'Simulated user directory state is updated for the active demo session.'}
                     </p>
                   </div>
                 </div>

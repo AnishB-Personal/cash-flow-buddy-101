@@ -50,9 +50,8 @@ test.describe("Stage 4C.2: Comprehensive Anonymous Protected Route Boundary", ()
     await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Orders" }).click();
     await expect(page).toHaveURL(`${FRONTEND_URL}/orders`);
 
-    // Verify stage notice is clearly displayed
-    await expect(page.getByText(/Stage Notice: Orders screen is not yet integrated with the live backend/i)).toBeVisible();
-    // Verify "New Order" button is hidden/disabled in live mode
-    await expect(page.getByRole("button", { name: /New Order/i })).not.toBeVisible();
+    // Verify Orders screen is integrated with live backend and New Order action is available for Admin
+    await expect(page.getByRole("heading", { name: "Orders" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /New Order/i })).toBeVisible();
   });
 });
