@@ -25,6 +25,7 @@ describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
       disconnect() {}
     });
     apiClient.configure({ mode: "live", baseUrl: "" });
+    apiClient.resetAllowedOrigins();
     apiClient.clearSession();
   });
 
@@ -809,6 +810,175 @@ describe("WP-04 Frontend Auth, Sessions, CSRF & Password Rotation", () => {
       await apiClient.getCustomers();
       expect(capturedInit?.credentials).toBe("include");
       expect((capturedInit?.headers as Record<string, string>)?.["Authorization"]).toBe("Bearer prod-deploy-token");
+    });
+  });
+
+  describe("AP-01 Acceptance Closure: Credential-Origin Isolation & Negative Regression", () => {
+    it("proves untrusted cross-origin API base URLs cause immediate request rejection across request, logout, and downloadExport", async () => {
+      apiClient.configure({ baseUrl: "https://untrusted-api.evil.com" });
+
+      // 1. request() rejects immediately
+      await expect(apiClient.request("/api/customers")).rejects.toThrow(/Untrusted target origin 'https:\/\/untrusted-api\.evil\.com'/i);
+
+      // 2. logout() fails closed and reports error without throwing unhandled
+      const logoutResult = await apiClient.logout();
+      expect(logoutResult.serverRevoked).toBe(false);
+      expect(logoutResult.error).toContain("Untrusted target origin 'https://untrusted-api.evil.com'");
+
+      // 3. downloadExport() rejects immediately
+      await expect(apiClient.downloadExport("excel")).rejects.toThrow(/Untrusted target origin 'https:\/\/untrusted-api\.evil\.com'/i);
+    });
+
+    it("proves no fetch() call occurs for any rejected destination across request, logout, and downloadExport", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      // Subcase 1: Untrusted cross-origin base URL
+      apiClient.configure({ baseUrl: "https://evil-untrusted-endpoint.com" });
+      await expect(apiClient.request("/api/orders")).rejects.toThrow();
+      await apiClient.logout();
+      await expect(apiClient.downloadExport("csv")).rejects.toThrow();
+
+      // Subcase 2: Protocol-relative endpoints
+      apiClient.configure({ baseUrl: "" });
+      await expect(apiClient.request("//evil-phish.org/steal")).rejects.toThrow();
+
+      // Subcase 3: Unsupported schemes
+      await expect(apiClient.request("javascript:steal()")).rejects.toThrow();
+      await expect(apiClient.request("ftp://storage.host/file")).rejects.toThrow();
+      await expect(apiClient.request("file:///etc/shadow")).rejects.toThrow();
+      await expect(apiClient.request("data:text/html,<script>alert(1)</script>")).rejects.toThrow();
+
+      // Absolute assertion: fetch() was NEVER called across all negative cases
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(fetchSpy.mock.calls.length).toBe(0);
+    });
+
+    it("proves caller-supplied Authorization headers are never transmitted to rejected destinations", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      apiClient.setToken("in-memory-super-secret-token");
+      const maliciousCallerOptions = {
+        headers: {
+          Authorization: "Bearer caller-injected-token-leak-attempt",
+          "X-Custom-Header": "leak-attempt",
+        },
+      };
+
+      // 1. Untrusted base URL with caller-supplied Authorization
+      apiClient.configure({ baseUrl: "https://attacker.leak-credentials.org" });
+      await expect(
+        apiClient.request("/api/sensitive-ledger", maliciousCallerOptions)
+      ).rejects.toThrow(/Untrusted target origin/i);
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      // 2. Protocol-relative endpoint with caller-supplied Authorization
+      apiClient.configure({ baseUrl: "" });
+      await expect(
+        apiClient.request("//evil-collector.com/telemetry", maliciousCallerOptions)
+      ).rejects.toThrow(/Protocol-relative endpoints/i);
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      // 3. Scheme hijacking with caller-supplied Authorization
+      await expect(
+        apiClient.request("javascript:window.__stolen=1", maliciousCallerOptions)
+      ).rejects.toThrow(/Absolute URLs and scheme prefixes/i);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("proves protocol-relative and unsupported-scheme URLs are rejected across configuration, resolution, and helpers", () => {
+      // Configuration rejects protocol-relative and unsupported schemes
+      expect(() => apiClient.configure({ baseUrl: "//evil.com" })).toThrow(/Protocol-relative URLs/i);
+      expect(() => apiClient.configure({ baseUrl: "//evil.com/api" })).toThrow(/Protocol-relative URLs/i);
+      expect(() => apiClient.configure({ baseUrl: "javascript:alert(1)" })).toThrow(/Unsupported scheme 'javascript:'/i);
+      expect(() => apiClient.configure({ baseUrl: "ftp://files.host" })).toThrow(/Unsupported scheme 'ftp:'/i);
+      expect(() => apiClient.configure({ baseUrl: "file:///etc/passwd" })).toThrow(/Unsupported scheme 'file:'/i);
+      expect(() => apiClient.configure({ baseUrl: "data:text/plain,hello" })).toThrow(/Unsupported scheme 'data:'/i);
+
+      // resolveAndValidateUrl rejects protocol-relative and schemes
+      expect(() => apiClient.resolveAndValidateUrl("//evil.com")).toThrow(/Protocol-relative endpoints/i);
+      expect(() => apiClient.resolveAndValidateUrl("javascript:void(0)")).toThrow(/Absolute URLs and scheme prefixes/i);
+      expect(() => apiClient.resolveAndValidateUrl("ftp://test.org")).toThrow(/Absolute URLs and scheme prefixes/i);
+      expect(() => apiClient.resolveAndValidateUrl("file:///test")).toThrow(/Absolute URLs and scheme prefixes/i);
+      expect(() => apiClient.resolveAndValidateUrl("data:text/plain")).toThrow(/Absolute URLs and scheme prefixes/i);
+
+      // Trust checks reject them
+      expect(apiClient.isTargetOriginTrusted("//evil.com")).toBe(false);
+      expect(apiClient.isTargetOriginTrusted("ftp://files.host")).toBe(false);
+      expect(apiClient.isTargetOriginTrusted("javascript:alert(1)")).toBe(false);
+
+      // Credentials mode omits credentials for untrusted or protocol-relative schemes
+      expect(apiClient.getCredentialsMode("//evil.com")).toBe("omit");
+      expect(apiClient.getCredentialsMode("ftp://files.host")).toBe("omit");
+    });
+
+    it("proves approved same-origin and configured cross-origin requests continue working across request, logout, and downloadExport", async () => {
+      const capturedCalls: Array<{ url: string; init?: RequestInit }> = [];
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        capturedCalls.push({ url, init });
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ "Content-Disposition": 'attachment; filename="audit_export.xlsx"' }),
+          json: async () => ({ success: true, customers: [{ id: 101, name: "Enterprise Customer" }] }),
+          blob: async () => new Blob(["binary-test-data"]),
+        });
+      }));
+
+      // --- Subcase A: Approved Same-Origin ("") ---
+      apiClient.configure({ baseUrl: "" });
+      apiClient.setToken("valid-same-origin-token");
+      apiClient.setCsrfToken("valid-csrf-token");
+
+      // 1. request()
+      await apiClient.getCustomers();
+      expect(capturedCalls[0].url).toBe("/api/customers");
+      expect(capturedCalls[0].init?.credentials).toBe("same-origin");
+      expect((capturedCalls[0].init?.headers as Record<string, string>)?.["Authorization"]).toBe("Bearer valid-same-origin-token");
+
+      // 2. logout()
+      const sameLogout = await apiClient.logout();
+      expect(sameLogout.serverRevoked).toBe(true);
+      expect(capturedCalls[1].url).toBe("/api/auth/logout");
+      expect(capturedCalls[1].init?.credentials).toBe("same-origin");
+      expect((capturedCalls[1].init?.headers as Record<string, string>)?.["Authorization"]).toBe("Bearer valid-same-origin-token");
+      expect((capturedCalls[1].init?.headers as Record<string, string>)?.["X-CSRF-Token"]).toBe("valid-csrf-token");
+
+      // 3. downloadExport()
+      apiClient.setToken("valid-same-origin-token"); // re-set after logout cleared it
+      const sameExport = await apiClient.downloadExport("excel");
+      expect(sameExport.filename).toBe("audit_export.xlsx");
+      expect(capturedCalls[2].url).toBe("/api/export/excel");
+      expect(capturedCalls[2].init?.credentials).toBe("same-origin");
+      expect((capturedCalls[2].init?.headers as Record<string, string>)?.["Authorization"]).toBe("Bearer valid-same-origin-token");
+
+      // --- Subcase B: Approved Configured Cross-Origin ("http://127.0.0.1:8000") ---
+      capturedCalls.length = 0;
+      apiClient.configure({ baseUrl: "http://127.0.0.1:8000" });
+      apiClient.setToken("valid-cross-origin-token");
+      apiClient.setCsrfToken("valid-cross-csrf");
+
+      // 1. request()
+      await apiClient.getCustomers();
+      expect(capturedCalls[0].url).toBe("http://127.0.0.1:8000/api/customers");
+      expect(capturedCalls[0].init?.credentials).toBe("include");
+      expect((capturedCalls[0].init?.headers as Record<string, string>)?.["Authorization"]).toBe("Bearer valid-cross-origin-token");
+
+      // 2. logout()
+      const crossLogout = await apiClient.logout();
+      expect(crossLogout.serverRevoked).toBe(true);
+      expect(capturedCalls[1].url).toBe("http://127.0.0.1:8000/api/auth/logout");
+      expect(capturedCalls[1].init?.credentials).toBe("include");
+      expect((capturedCalls[1].init?.headers as Record<string, string>)?.["Authorization"]).toBe("Bearer valid-cross-origin-token");
+
+      // 3. downloadExport()
+      apiClient.setToken("valid-cross-origin-token"); // re-set after logout
+      const crossExport = await apiClient.downloadExport("excel");
+      expect(crossExport.filename).toBe("audit_export.xlsx");
+      expect(capturedCalls[2].url).toBe("http://127.0.0.1:8000/api/export/excel");
+      expect(capturedCalls[2].init?.credentials).toBe("include");
+      expect((capturedCalls[2].init?.headers as Record<string, string>)?.["Authorization"]).toBe("Bearer valid-cross-origin-token");
     });
   });
 

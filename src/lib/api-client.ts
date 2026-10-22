@@ -74,20 +74,22 @@ export interface ApiClientConfig {
   allowedOrigins?: string[];
 }
 
+export const DEFAULT_ALLOWED_ORIGINS: readonly string[] = Object.freeze([
+  "http://localhost:8000",
+  "http://127.0.0.1:8000",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+]);
+
 class ApiClient {
   private mode: ApiMode = "mock";
   private baseUrl = "";
   private timeoutMs = 10000;
-  private allowedOrigins: string[] = [
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-  ];
+  private allowedOrigins: string[] = [...DEFAULT_ALLOWED_ORIGINS];
   // In-memory token storage (ephemeral, not persisted to web storage)
   private inMemoryToken: string | null = null;
   private inMemoryUser: UserProfile | null = null;
@@ -96,6 +98,10 @@ class ApiClient {
 
   constructor() {
     this.initFromEnv();
+  }
+
+  public resetAllowedOrigins(): void {
+    this.allowedOrigins = [...DEFAULT_ALLOWED_ORIGINS];
   }
 
   public initFromEnv(): void {
